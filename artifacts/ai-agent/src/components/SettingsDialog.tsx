@@ -78,7 +78,7 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
             <div className="shimmer-bg absolute inset-0" />
             <div className="relative z-10 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <img src="/synapse-icon.svg" alt="Synapse" className="w-8 h-8 rounded-lg" />
+                <img src="/synapse-icon.webp" alt="Synapse" className="w-8 h-8 rounded-lg" />
                 <div>
                   <h2 className="text-lg font-bold text-white tracking-tight">Настройки</h2>
                   <p className="text-xs text-white/60">SYNAPSE AGENT</p>

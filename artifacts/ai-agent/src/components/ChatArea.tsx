@@ -22,7 +22,7 @@ function OctopusIcon({ swimming, size = 64 }: { swimming: boolean; size?: number
   return (
     <div className={swimming ? "octopus-swimming" : "octopus-idle"} style={{ width: size, height: size }}>
       <div className={swimming ? "octopus-swimming-inner" : ""}>
-        <img src="/synapse-icon.svg" alt="Synapse" style={{ width: size, height: size }} className="rounded-2xl" />
+        <img src="/synapse-icon.webp" alt="Synapse" style={{ width: size, height: size }} className="rounded-2xl" />
       </div>
     </div>
   );
@@ -48,7 +48,7 @@ function CompletionBurst() {
           );
         })}
         <div className="relative z-10">
-          <img src="/synapse-icon.svg" alt="" className="w-16 h-16 rounded-2xl" />
+          <img src="/synapse-icon.webp" alt="" className="w-16 h-16 rounded-2xl" />
         </div>
       </div>
     </div>

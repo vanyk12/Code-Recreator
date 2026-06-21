@@ -70,7 +70,7 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
         >
           <div className="flex flex-col items-center gap-1 mb-1">
             <img
-              src="/synapse-icon.svg"
+              src="/synapse-icon.webp"
               alt="Synapse"
               className="w-8 h-8 rounded-xl cursor-pointer hover:scale-105 transition-transform"
               onClick={() => setCollapsed(false)}
@@ -136,7 +136,7 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
         style={{ width: 240, borderRight: "1px solid rgba(255,255,255,0.06)", transition: "width 0.2s ease" }}
       >
         <div className="px-3 pt-3 pb-2 flex items-center gap-2">
-          <img src="/synapse-icon.svg" alt="Synapse" className="w-7 h-7 rounded-xl shrink-0" />
+          <img src="/synapse-icon.webp" alt="Synapse" className="w-7 h-7 rounded-xl shrink-0" />
           <span className="synapse-logo-text text-sm font-bold tracking-widest uppercase flex-1 truncate">
             SYNAPSE AGENT
           </span>
