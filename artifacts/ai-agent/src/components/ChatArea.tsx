@@ -506,6 +506,23 @@ function MessageContent({
   );
 }
 
+type AgentMode = "chat" | "plan" | "build";
+type ThinkingLevel = "auto" | "t1" | "t2" | "t3" | "t4";
+
+const MODES: { id: AgentMode; label: string; title: string }[] = [
+  { id: "chat", label: "Чат", title: "Обсуждение без создания кода" },
+  { id: "plan", label: "План", title: "Сначала план, потом код" },
+  { id: "build", label: "Создать", title: "Сразу пишет код и файлы" },
+];
+
+const THINKING_LEVELS: { id: ThinkingLevel; label: string; title: string }[] = [
+  { id: "auto", label: "Авто", title: "Уровень мышления по умолчанию" },
+  { id: "t1", label: "T1 Быстрый", title: "Быстрый краткий ответ" },
+  { id: "t2", label: "T2 Глубокий", title: "Тщательный анализ" },
+  { id: "t3", label: "T3 Архитектор", title: "Взгляд senior architect" },
+  { id: "t4", label: "T4 Консилиум", title: "Многоуровневый анализ экспертов" },
+];
+
 /* ─────────────── Main ChatArea ─────────────── */
 export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; onFilesCreated?: () => void }) {
   const queryClient = useQueryClient();
@@ -523,10 +540,13 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; content: string }[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [cmdStates, setCmdStates] = useState<Map<number, Map<string, RunCmd>>>(new Map());
+  const [agentMode, setAgentMode] = useState<AgentMode>("build");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prevStreamingRef = useRef(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -578,8 +598,9 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   };
 
   const toggleVoice = () => {
-    const SR = (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition ||
-               (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SR) { alert("Голосовой ввод не поддерживается в вашем браузере"); return; }
     if (isListening) {
       recognitionRef.current?.stop();
@@ -590,7 +611,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
     rec.lang = "ru-RU";
     rec.interimResults = false;
     rec.maxAlternatives = 1;
-    rec.onresult = e => {
+    rec.onresult = (e: { results: { [n: number]: { [n: number]: { transcript: string } } } }) => {
       const transcript = e.results[0][0].transcript;
       setInput(prev => prev ? `${prev} ${transcript}` : transcript);
     };
@@ -612,11 +633,12 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
       content = (content || "") + fileBlocks;
     }
     if (!content && attachedImages.length > 0) content = "(Изображение)";
+    if (!content.trim()) return;
     const images = attachedImages.map(i => i.dataUrl);
     setInput("");
     setAttachedImages([]);
     setAttachedFiles([]);
-    streamMessage(content, images);
+    streamMessage(content, images, agentMode, thinkingLevel);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -749,6 +771,49 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
             Слушаю... Говорите по-русски. Нажмите 🎤 ещё раз чтобы остановить.
           </div>
         )}
+
+        {/* Mode + thinking selectors */}
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="flex items-center rounded-xl overflow-hidden shrink-0"
+            style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            {MODES.map((m, i) => (
+              <button
+                key={m.id}
+                onClick={() => setAgentMode(m.id)}
+                title={m.title}
+                className={`px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                  agentMode === m.id
+                    ? m.id === "build"
+                      ? "bg-primary text-primary-foreground"
+                      : m.id === "plan"
+                      ? "bg-accent/80 text-accent-foreground"
+                      : "bg-white/15 text-foreground"
+                    : "text-muted-foreground/50 hover:text-muted-foreground/80"
+                } ${i > 0 ? "border-l border-white/8" : ""}`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center rounded-xl overflow-hidden shrink-0"
+            style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            {THINKING_LEVELS.map((t, i) => (
+              <button
+                key={t.id}
+                onClick={() => setThinkingLevel(t.id)}
+                title={t.title}
+                className={`px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                  thinkingLevel === t.id
+                    ? "bg-white/12 text-foreground"
+                    : "text-muted-foreground/40 hover:text-muted-foreground/70"
+                } ${i > 0 ? "border-l border-white/8" : ""}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="relative flex items-center bg-black/20 border border-white/8 rounded-2xl backdrop-blur-sm focus-within:border-primary/25 transition-colors">
           <button

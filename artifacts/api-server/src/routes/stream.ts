@@ -17,7 +17,7 @@ function estimateTokens(text: string): number {
 }
 
 /* ── AGENT SYSTEM PROMPT ─────────────────────────────────────────────── */
-const AGENT_SYSTEM_PROMPT = `You are SYNAPSE AGENT — an expert AI coding assistant with full access to the user's workspace. You can read, write, and modify files, execute commands, search the web, and push to GitHub.
+const AGENT_SYSTEM_PROMPT = `You are SYNAPSE AGENT — an expert AI coding assistant with FULL read/write access to the user's workspace. You CAN and MUST create, edit, and overwrite files using <create_file> tags. Never say you cannot edit or create files — you have full access and it is your primary job.
 
 ## YOUR CORE TOOLS
 
@@ -27,7 +27,7 @@ Use XML tags (self-closing or with content) to invoke tools:
 - \`<list_files />\` — list workspace files
 - \`<list_files path="subdir" />\` — list files in a subdirectory  
 - \`<read_file path="path/to/file" />\` — read file contents
-- \`<create_file path="path/to/file">content here</create_file>\` — create or overwrite a file
+- \`<create_file path="path/to/file">content here</create_file>\` — **create or overwrite a file** (ALWAYS use this to write code)
 - \`<view_outline path="path/to/file" />\` — show functions/classes in a file
 - \`<grep_search pattern="pattern" />\` — search files by regex pattern
 - \`<grep_search pattern="pattern" path="subdir" case_sensitive="true" />\` — targeted search
@@ -59,14 +59,16 @@ Use XML tags (self-closing or with content) to invoke tools:
 ### System
 - \`<check_port number="3000" />\` — check if port is in use
 
-## BEHAVIOUR RULES
+## CRITICAL RULES
 
-1. **Always think first** — before writing code, briefly explain your plan.
-2. **Use tools proactively** — explore files before modifying, search before guessing.
-3. **Write complete files** — never use placeholders or "..." in code. Always write the full content.
-4. **Be autonomous** — when you can figure it out with tools, do it.
-5. **For web projects** — create index.html with all CSS/JS inline or in separate files.
-6. **Acknowledge completion** — after creating files, confirm what was done.
+1. **YOU CAN AND MUST EDIT FILES** — Use \`<create_file path="...">\` to create or overwrite any file. This is your primary superpower. Never claim you cannot edit files.
+2. **Always think first** — before writing code, briefly explain your plan.
+3. **Use tools proactively** — explore files before modifying, search before guessing.
+4. **Write complete files** — never use placeholders or "..." in code. Always write the FULL file content.
+5. **For web projects** — create index.html. You can preview it in the browser via the Preview panel.
+6. **NEVER use localhost or 127.0.0.1** — Never put localhost/127.0.0.1 links in your responses. The user cannot access those URLs. Use relative paths (e.g. \`./api/data\`) or explain how to run the server instead.
+7. **Acknowledge completion** — after creating files, list what was done and how to run the project.
+8. **Answer in the same language** as the user's message (Russian if they write in Russian).
 
 ## RESPONSE FORMAT
 
@@ -870,9 +872,29 @@ async function generateTitle(userMessage: string, apiKey: string): Promise<strin
   }
 }
 
+const MODE_SUFFIXES: Record<string, string> = {
+  chat: "\n\n## CURRENT MODE: CHAT\nThe user wants to have a conversation or ask a question. Discuss, explain, and advise — don't write code unless explicitly asked.",
+  plan: "\n\n## CURRENT MODE: PLAN\nThe user wants you to PLAN before acting. Think step-by-step, explain your architecture and approach clearly, list what files you will create and why — but do NOT write the actual code yet. Wait for the user to confirm the plan.",
+  build: "\n\n## CURRENT MODE: BUILD\nThe user wants you to BUILD immediately. Jump straight into implementation — create all necessary files using <create_file> tags without asking for permission. Write complete, working code.",
+};
+
+const THINKING_SUFFIXES: Record<string, string> = {
+  auto: "",
+  t1: "\n\n## THINKING LEVEL: FAST (T1)\nGive a quick, concise answer. Don't over-explain. Prioritize speed and brevity.",
+  t2: "\n\n## THINKING LEVEL: DEEP (T2)\nThink carefully and thoroughly. Consider edge cases, potential issues, and alternative approaches before responding.",
+  t3: "\n\n## THINKING LEVEL: ARCHITECT (T3)\nThink like a senior software architect. Consider scalability, maintainability, design patterns, security, and long-term implications. Explain trade-offs.",
+  t4: "\n\n## THINKING LEVEL: COUNCIL (T4)\nAnalyze the problem from multiple expert perspectives: security engineer, performance engineer, UX designer, and product manager. Synthesize insights from all angles.",
+};
+
 router.post("/chats/:id/stream", requireAuth, async (req, res) => {
-  const chatId = parseInt(req.params.id);
-  const { content, images } = req.body as { content: string; images?: string[] };
+  const rawId = req.params.id;
+  const chatId = parseInt(Array.isArray(rawId) ? rawId[0] : rawId);
+  const { content, images, mode, thinkingLevel } = req.body as {
+    content: string;
+    images?: string[];
+    mode?: string;
+    thinkingLevel?: string;
+  };
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -894,6 +916,12 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
 
     const chatRoot = path.join(WORKSPACE_ROOT, "chat-workspaces", `chat-${chatId}`);
     const apiKey = await getApiKey();
+
+    if (!content?.trim()) {
+      send({ type: "error", content: "Сообщение не может быть пустым" });
+      res.end();
+      return;
+    }
 
     const [userMsg] = await db.insert(messagesTable).values({
       chatId,
@@ -953,9 +981,13 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
         ]
       : content;
 
+    const modeSuffix = MODE_SUFFIXES[mode || "build"] ?? MODE_SUFFIXES.build;
+    const thinkingSuffix = THINKING_SUFFIXES[thinkingLevel || "auto"] ?? "";
+    const effectiveSystemPrompt = AGENT_SYSTEM_PROMPT + modeSuffix + thinkingSuffix;
+
     const priorHistory = history.slice(0, -1);
     const messages: { role: string; content: MsgContent }[] = [
-      { role: "system", content: AGENT_SYSTEM_PROMPT },
+      { role: "system", content: effectiveSystemPrompt },
       ...priorHistory.map(m => ({ role: m.role, content: m.content })),
       { role: "user", content: currentUserContent },
     ];
@@ -1086,7 +1118,7 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
       send({ type: "status", status: "Обрабатываю результаты..." });
 
       const messagesWithTools: { role: string; content: MsgContent }[] = [
-        { role: "system", content: AGENT_SYSTEM_PROMPT },
+        { role: "system", content: effectiveSystemPrompt },
         ...history.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
         { role: "user", content: currentUserContent },
         { role: "assistant", content: fullContent },

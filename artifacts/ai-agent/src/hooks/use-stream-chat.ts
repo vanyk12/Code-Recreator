@@ -19,7 +19,12 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     setStreamContent('');
   }, []);
 
-  const streamMessage = useCallback(async (content: string, images?: string[]) => {
+  const streamMessage = useCallback(async (
+    content: string,
+    images?: string[],
+    mode?: string,
+    thinkingLevel?: string,
+  ) => {
     if (!chatId) return;
     const abortCtrl = new AbortController();
     abortRef.current = abortCtrl;
@@ -34,7 +39,12 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
         method: 'POST',
         signal: abortCtrl.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, images: images?.length ? images : undefined })
+        body: JSON.stringify({
+          content,
+          images: images?.length ? images : undefined,
+          mode: mode || 'build',
+          thinkingLevel: thinkingLevel || 'auto',
+        })
       });
 
       if (!response.body) throw new Error('No response body');

@@ -61,7 +61,7 @@ router.post("/chats", requireAuth, async (req, res) => {
 router.get("/chats/:id", requireAuth, async (req, res): Promise<void> => {
   try {
     const userId = (req as typeof req & { userId: string }).userId;
-    const id = parseInt(req.params.id);
+    const rawId = req.params.id; const id = parseInt(Array.isArray(rawId) ? rawId[0] : rawId);
     const [chat] = await db
       .select({
         id: chatsTable.id,
@@ -92,7 +92,7 @@ router.get("/chats/:id", requireAuth, async (req, res): Promise<void> => {
 router.patch("/chats/:id", requireAuth, async (req, res): Promise<void> => {
   try {
     const userId = (req as typeof req & { userId: string }).userId;
-    const id = parseInt(req.params.id);
+    const rawId2 = req.params.id; const id = parseInt(Array.isArray(rawId2) ? rawId2[0] : rawId2);
     const { title, model } = req.body;
     const [chat] = await db.update(chatsTable)
       .set({ ...(title && { title }), ...(model && { model }), updatedAt: new Date() })
@@ -115,7 +115,7 @@ router.patch("/chats/:id", requireAuth, async (req, res): Promise<void> => {
 router.delete("/chats/:id", requireAuth, async (req, res): Promise<void> => {
   try {
     const userId = (req as typeof req & { userId: string }).userId;
-    const id = parseInt(req.params.id);
+    const rawId3 = req.params.id; const id = parseInt(Array.isArray(rawId3) ? rawId3[0] : rawId3);
     const deleted = await db.delete(chatsTable)
       .where(and(eq(chatsTable.id, id), eq(chatsTable.userId, userId)))
       .returning();
@@ -130,7 +130,7 @@ router.delete("/chats/:id", requireAuth, async (req, res): Promise<void> => {
 router.get("/chats/:id/messages", requireAuth, async (req, res) => {
   try {
     const userId = (req as typeof req & { userId: string }).userId;
-    const id = parseInt(req.params.id);
+    const rawId4 = req.params.id; const id = parseInt(Array.isArray(rawId4) ? rawId4[0] : rawId4);
     const [chat] = await db.select({ id: chatsTable.id })
       .from(chatsTable)
       .where(and(eq(chatsTable.id, id), eq(chatsTable.userId, userId)));

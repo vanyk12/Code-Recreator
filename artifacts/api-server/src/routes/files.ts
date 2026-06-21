@@ -49,7 +49,8 @@ router.get("/workspace/:chatId/*filePath", async (req, res) => {
   try {
     const chatId = parseInt(req.params.chatId);
     if (isNaN(chatId)) { res.status(400).send("Invalid chat ID"); return; }
-    const filePath = (req.params as Record<string, string>).filePath || "index.html";
+    const rawFilePath = req.params.filePath;
+    const filePath = (Array.isArray(rawFilePath) ? rawFilePath.join("/") : rawFilePath) || "index.html";
     const chatRoot = path.join(WORKSPACE_ROOT, "chat-workspaces", `chat-${chatId}`);
     const fullPath = path.resolve(chatRoot, filePath);
     if (!fullPath.startsWith(path.resolve(chatRoot))) { res.status(403).send("Forbidden"); return; }

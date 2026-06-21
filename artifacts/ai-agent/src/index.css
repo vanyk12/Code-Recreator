@@ -291,3 +291,35 @@
 }
 .pulse-dot.d1 { animation-delay: 0.15s; background: hsl(213 94% 60%); }
 .pulse-dot.d2 { animation-delay: 0.30s; }
+
+/* ── CUSTOM SCROLLBARS ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(220 30% 22% / 0.8) transparent;
+}
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(220 30% 22% / 0.7);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(220 30% 30% / 0.9);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.light * {
+  scrollbar-color: hsl(220 20% 80% / 0.8) transparent;
+}
+.light *::-webkit-scrollbar-thumb {
+  background: hsl(220 20% 78% / 0.7);
+}
+.light *::-webkit-scrollbar-thumb:hover {
+  background: hsl(220 20% 65% / 0.9);
+}
