@@ -10,6 +10,20 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: chats
+    description: Chat management
+  - name: messages
+    description: Chat messages
+  - name: stream
+    description: AI streaming
+  - name: files
+    description: File operations
+  - name: terminal
+    description: Terminal execution
+  - name: settings
+    description: User settings
+  - name: models
+    description: Available models
 paths:
   /healthz:
     get:
@@ -24,6 +38,284 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /chats:
+    get:
+      operationId: listChats
+      tags: [chats]
+      summary: List all chats
+      responses:
+        "200":
+          description: List of chats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chat"
+    post:
+      operationId: createChat
+      tags: [chats]
+      summary: Create a new chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChatRequest"
+      responses:
+        "201":
+          description: Created chat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+
+  /chats/{id}:
+    get:
+      operationId: getChat
+      tags: [chats]
+      summary: Get a chat by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Chat object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+    patch:
+      operationId: updateChat
+      tags: [chats]
+      summary: Update a chat
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChatRequest"
+      responses:
+        "200":
+          description: Updated chat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+    delete:
+      operationId: deleteChat
+      tags: [chats]
+      summary: Delete a chat
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /chats/{id}/messages:
+    get:
+      operationId: listMessages
+      tags: [messages]
+      summary: List messages for a chat
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+
+  /chats/{id}/stream:
+    post:
+      operationId: streamChat
+      tags: [stream]
+      summary: Stream AI response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StreamRequest"
+      responses:
+        "200":
+          description: SSE stream
+
+  /files/list:
+    post:
+      operationId: listFiles
+      tags: [files]
+      summary: List files in a directory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FilePathRequest"
+      responses:
+        "200":
+          description: File entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileEntry"
+
+  /files/read:
+    post:
+      operationId: readFile
+      tags: [files]
+      summary: Read a file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FilePathRequest"
+      responses:
+        "200":
+          description: File content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileContent"
+
+  /files/write:
+    post:
+      operationId: writeFile
+      tags: [files]
+      summary: Write a file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WriteFileRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /files/delete:
+    post:
+      operationId: deleteFile
+      tags: [files]
+      summary: Delete a file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FilePathRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /terminal/execute:
+    post:
+      operationId: executeCommand
+      tags: [terminal]
+      summary: Execute a shell command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteCommandRequest"
+      responses:
+        "200":
+          description: Command result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResult"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get user settings
+      responses:
+        "200":
+          description: Settings map
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+    post:
+      operationId: saveSettings
+      tags: [settings]
+      summary: Save user settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        "200":
+          description: Saved settings
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+
+  /models:
+    get:
+      operationId: listModels
+      tags: [models]
+      summary: List available AI models
+      responses:
+        "200":
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelInfo"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +326,171 @@ components:
       required:
         - status
 
+    Chat:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        model:
+          type: string
+        totalTokens:
+          type: integer
+        messageCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - title
+        - model
+        - totalTokens
+        - messageCount
+        - createdAt
+        - updatedAt
+
+    CreateChatRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        model:
+          type: string
+      required:
+        - title
+        - model
+
+    UpdateChatRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        model:
+          type: string
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+        chatId:
+          type: integer
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        tokensUsed:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - chatId
+        - role
+        - content
+        - tokensUsed
+        - createdAt
+
+    StreamRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+      required:
+        - content
+
+    FilePathRequest:
+      type: object
+      properties:
+        path:
+          type: string
+      required:
+        - path
+
+    FileEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file, directory]
+        size:
+          type: integer
+          nullable: true
+      required:
+        - name
+        - path
+        - type
+
+    FileContent:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    WriteFileRequest:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+      required:
+        - path
+        - content
+
+    SuccessResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+
+    ExecuteCommandRequest:
+      type: object
+      properties:
+        command:
+          type: string
+        cwd:
+          type: string
+      required:
+        - command
+
+    CommandResult:
+      type: object
+      properties:
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exitCode:
+          type: integer
+      required:
+        - stdout
+        - stderr
+        - exitCode
+
+    ModelInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - name
