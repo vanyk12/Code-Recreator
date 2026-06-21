@@ -9,7 +9,7 @@ import { SignUpPage } from "@/pages/SignUpPage";
 import { useState, useEffect, createContext, useContext, useRef } from "react";
 import { ClerkProvider, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
-import { shadcn } from "@clerk/themes";
+import { dark } from "@clerk/themes";
 
 const queryClient = new QueryClient();
 
@@ -33,71 +33,44 @@ function stripBase(path: string): string {
     : path;
 }
 
+const T = "hsl(210 20% 90%)";
+const T2 = "hsl(210 15% 60%)";
 const BG = "hsl(220 40% 11%)";
-const CARD_BG = "hsl(220 35% 14%)";
-const BORDER = "hsl(220 30% 22%)";
-const TEXT = "hsl(210 20% 90%)";
-const MUTED = "hsl(210 15% 55%)";
+const CARD = "hsl(220 35% 14%)";
+const INPUT = "hsl(220 30% 18%)";
+const BORDER = "hsl(220 25% 24%)";
 const ACCENT = "hsl(25 95% 53%)";
-const INPUT_BG = "hsl(220 35% 10%)";
 
 const clerkAppearance = {
-  theme: shadcn,
-  cssLayerName: "clerk",
+  baseTheme: dark,
   variables: {
     colorPrimary: ACCENT,
-    colorForeground: TEXT,
-    colorMutedForeground: MUTED,
+    colorBackground: CARD,
+    colorInput: INPUT,
+    colorInputForeground: T,
+    colorText: T,
+    colorTextSecondary: T2,
+    colorTextOnPrimaryBackground: "hsl(222 47% 8%)",
     colorDanger: "hsl(0 72% 51%)",
-    colorBackground: CARD_BG,
-    colorInput: INPUT_BG,
-    colorInputForeground: TEXT,
-    colorNeutral: "hsl(220 30% 18%)",
+    colorNeutral: "hsl(220 15% 70%)",
     fontFamily: "Inter, sans-serif",
     borderRadius: "0.75rem",
   },
   elements: {
-    rootBox: { width: "100%", display: "flex", justifyContent: "center" },
-    cardBox: {
-      width: "440px",
-      maxWidth: "100%",
-      borderRadius: "1rem",
-      overflow: "hidden",
-      border: `1px solid ${BORDER}`,
-      boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-    },
-    card: { background: CARD_BG, boxShadow: "none", border: "none", borderRadius: "0" },
-    footer: { background: CARD_BG, boxShadow: "none", border: "none", borderTop: `1px solid ${BORDER}` },
-    main: { background: CARD_BG },
-    header: { background: CARD_BG },
-    headerTitle: { color: TEXT },
-    headerSubtitle: { color: MUTED },
-    socialButtonsBlockButton: { borderColor: BORDER, backgroundColor: "hsl(220 35% 18%)", color: TEXT },
-    socialButtonsBlockButtonText: { color: TEXT },
-    formFieldLabel: { color: MUTED },
-    formFieldInput: { backgroundColor: INPUT_BG, borderColor: BORDER, color: TEXT },
-    formButtonPrimary: { backgroundColor: ACCENT, color: "hsl(222 47% 8%)" },
+    rootBox: { background: BG },
+    card: { background: CARD, border: `1px solid ${BORDER}`, boxShadow: "0 8px 40px rgba(0,0,0,0.5)" },
+    headerTitle: { color: T },
+    headerSubtitle: { color: T2 },
+    socialButtonsBlockButton: { background: INPUT, border: `1px solid ${BORDER}`, color: T },
+    socialButtonsBlockButtonText: { color: T },
+    formFieldLabel: { color: T2 },
+    formFieldInput: { background: INPUT, borderColor: BORDER, color: T },
+    dividerText: { color: T2 },
+    dividerLine: { background: BORDER },
+    formButtonPrimary: { background: ACCENT, color: "hsl(222 47% 8%)" },
     footerActionLink: { color: ACCENT },
-    footerActionText: { color: MUTED },
-    footerAction: { background: CARD_BG },
-    dividerText: { color: "hsl(210 15% 45%)" },
-    dividerLine: { backgroundColor: BORDER },
-    identityPreviewEditButton: { color: ACCENT },
-    formFieldSuccessText: { color: "hsl(142 76% 45%)" },
-    alertText: { color: TEXT },
-    alert: { borderColor: BORDER },
-    logoBox: { margin: "0 auto 4px" },
-    logoImage: { width: "48px", height: "48px" },
-    otpCodeFieldInput: { backgroundColor: INPUT_BG, borderColor: BORDER, color: TEXT },
-    pageScrollBox: { background: CARD_BG },
-    form: { background: CARD_BG },
-    navbar: { background: CARD_BG },
-    navbarButton: { color: TEXT },
-    profileSectionTitleText: { color: TEXT },
-    userPreviewMainIdentifier: { color: TEXT },
-    userPreviewSecondaryIdentifier: { color: MUTED },
-    menuList: { background: BG, border: `1px solid ${BORDER}` },
-    menuItem: { color: TEXT },
+    footerActionText: { color: T2 },
+    footer: { background: CARD, borderTop: `1px solid ${BORDER}` },
   },
 };
 
