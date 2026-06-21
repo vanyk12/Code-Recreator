@@ -169,6 +169,16 @@ function App() {
   });
 
   useEffect(() => {
+    // Initialize Telegram Mini App SDK if opened inside Telegram
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+  }, []);
+
+  useEffect(() => {
     const root = document.documentElement;
     root.classList.remove("dark", "light");
     root.classList.add(theme);
