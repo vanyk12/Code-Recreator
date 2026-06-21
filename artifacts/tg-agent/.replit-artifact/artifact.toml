@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/tg/"
+title = "SYNAPSE TG Mini App"
+version = "1.0.0"
+id = "artifacts/tg-agent"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/tg/" ]
+localPort = 24420
+
+[services.development]
+run = "pnpm --filter @workspace/tg-agent run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tg-agent", "run", "build" ]
+publicDir = "artifacts/tg-agent/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24420"
+BASE_PATH = "/tg/"
