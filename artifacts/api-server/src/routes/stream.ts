@@ -74,8 +74,24 @@ Use XML tags (self-closing or with content) to invoke tools:
 
 - Answer in the SAME LANGUAGE as the user's message.
 - Use markdown for explanations.
-- When creating files, use \`<create_file>\` tags — they are auto-saved to the workspace.
-- Keep explanations concise; let the code speak.`;
+- **ALWAYS use \`<create_file>\` tags for ANY file content — never use plain markdown code blocks to show file contents.** Files shown as code blocks are NOT saved to disk.
+- Keep explanations concise; let the code speak.
+
+## EXAMPLE — correct way to create files
+
+User: "Create a hello world in Python"
+
+WRONG (file is not saved):
+\`\`\`python
+print("Hello, world!")
+\`\`\`
+
+CORRECT (file IS saved to workspace):
+<create_file path="main.py">
+print("Hello, world!")
+</create_file>
+
+Always use <create_file> — even for simple one-liners. This is the ONLY way files get saved.`;
 
 /* ── build a compact file tree ───────────────────────────────────────── */
 async function buildFileTree(dir: string, prefix: string, depth: number): Promise<string> {
@@ -1214,6 +1230,31 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
           req.log.warn({ filePath, bytes: partialContent.length }, "Saved unclosed (truncated) file");
         } catch (err) {
           req.log.error({ err, filePath }, "Failed to save unclosed file");
+        }
+      }
+    }
+
+    // Fallback: if AI ignored <create_file> tags and used markdown code blocks with filenames instead
+    // Patterns: "1. filename.ext\n```lang\n...\n```" or "### filename.ext\n```lang\n...\n```" or "**filename.ext**\n```lang\n...\n```"
+    if (createdFiles.length === 0) {
+      const mdFileRe = /(?:^|\n)(?:\d+\.\s+|#{1,4}\s+|\*\*)?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})\**\s*\n```[a-z0-9]*\n([\s\S]*?)```/gm;
+      let mf;
+      while ((mf = mdFileRe.exec(fullContent)) !== null) {
+        const [, filePath, fileContent] = mf;
+        // Skip paths that look like URLs or obviously non-file things
+        if (filePath.startsWith("http") || filePath.includes("//")) continue;
+        // Must look like a real relative path
+        if (!/^[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10}$/.test(filePath)) continue;
+        if (createdPaths.has(filePath)) continue;
+        try {
+          const fullFilePath = safePath(filePath, chatRoot);
+          await fs.mkdir(path.dirname(fullFilePath), { recursive: true });
+          await fs.writeFile(fullFilePath, fileContent, "utf-8");
+          createdFiles.push(filePath);
+          createdPaths.add(filePath);
+          req.log.info({ filePath, bytes: fileContent.length }, "Auto-created file (markdown fallback)");
+        } catch (err) {
+          req.log.error({ err, filePath }, "Failed to auto-create file (markdown fallback)");
         }
       }
     }
