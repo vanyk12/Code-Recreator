@@ -1,0 +1,544 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Тукан — Органайзер</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg-primary: #f8f9fa;
+  --bg-sidebar: #1e1e2e;
+  --bg-card: #ffffff;
+  --text-primary: #1a1a2e;
+  --text-secondary: #6c757d;
+  --text-sidebar: #cdd6f4;
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --success: #10b981;
+  --danger: #ef4444;
+  --border: #e2e8f0;
+  --shadow: 0 1px 3px rgba(0,0,0,0.1);
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+body { font-family: 'Inter', sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; }
+
+/* Login */
+.login-page {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px;
+}
+.login-card {
+  background: white; border-radius: 20px; padding: 48px 40px; max-width: 420px; width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;
+}
+.logo-icon { font-size: 48px; }
+.login-card h1 { font-size: 28px; font-weight: 700; margin: 8px 0 4px; }
+.subtitle { color: var(--text-secondary); font-size: 14px; }
+.login-form { text-align: left; margin-top: 24px; }
+.form-group { margin-bottom: 20px; }
+.form-group label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+.form-group input {
+  width: 100%; padding: 12px 16px; border: 2px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 16px; transition: border-color 0.2s;
+}
+.form-group input:focus { outline: none; border-color: var(--accent); }
+.form-group small { display: block; margin-top: 6px; color: var(--text-secondary); font-size: 12px; }
+.btn-primary {
+  width: 100%; padding: 12px 24px; background: var(--accent); color: white; border: none;
+  border-radius: var(--radius-sm); font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.2s;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary {
+  padding: 8px 16px; background: white; color: var(--text-primary); border: 2px solid var(--border);
+  border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* App Layout */
+.app-layout { display: flex; height: 100vh; }
+.sidebar {
+  width: 300px; min-width: 300px; background: var(--bg-sidebar); color: var(--text-sidebar);
+  display: flex; flex-direction: column;
+}
+.sidebar-header { padding: 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.logo-small { font-size: 24px; }
+.sidebar-header h2 { font-size: 18px; font-weight: 700; flex: 1; }
+.user-badge { background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 20px; font-size: 12px; }
+.search-box { padding: 12px 16px; }
+.search-box input {
+  width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-sm); color: white; font-size: 14px;
+}
+.search-box input::placeholder { color: rgba(255,255,255,0.4); }
+.search-box input:focus { outline: none; background: rgba(255,255,255,0.12); border-color: var(--accent); }
+.folders-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+.folders-header {
+  display: flex; align-items: center; padding: 14px 20px 10px; font-size: 13px;
+  text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.5);
+}
+.folders-header h3 { flex: 1; font-weight: 600; font-size: 13px; }
+.btn-icon {
+  background: none; border: none; color: rgba(255,255,255,0.5); cursor: pointer; font-size: 20px;
+  width: 28px; height: 28px; border-radius: 6px; transition: all 0.2s;
+}
+.btn-icon:hover { background: rgba(255,255,255,0.1); color: white; }
+.folder-item {
+  display: flex; align-items: center; padding: 10px 20px; cursor: pointer; transition: all 0.2s;
+  border-left: 3px solid transparent; gap: 10px;
+}
+.folder-item:hover { background: rgba(255,255,255,0.06); }
+.folder-item.active { background: rgba(124,58,237,0.15); border-left-color: var(--accent); color: white; }
+.folder-icon { font-size: 16px; flex-shrink: 0; }
+.folder-name { flex: 1; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.folder-count { font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 12px; min-width: 24px; text-align: center; }
+.folders-footer { padding: 12px 20px; border-top: 1px solid rgba(255,255,255,0.08); }
+.logout-link { color: rgba(255,255,255,0.4); text-decoration: none; font-size: 13px; cursor: pointer; }
+.logout-link:hover { color: white; }
+
+/* Main */
+.main-content { flex: 1; overflow-y: auto; background: var(--bg-primary); }
+.content-header {
+  display: flex; align-items: center; padding: 24px 32px; background: white; border-bottom: 1px solid var(--border);
+  gap: 16px; position: sticky; top: 0; z-index: 10;
+}
+.content-header h2 { font-size: 22px; font-weight: 700; flex: 1; }
+.header-actions { display: flex; gap: 8px; }
+.header-actions .btn-primary { width: auto; padding: 10px 20px; font-size: 14px; }
+
+/* Notes Grid */
+.notes-grid { padding: 24px 32px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.note-card {
+  background: white; border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow);
+  transition: all 0.2s; border: 1px solid var(--border); cursor: pointer; position: relative;
+}
+.note-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px); }
+.note-card.task { border-left: 4px solid var(--accent); }
+.note-card.task.done { border-left-color: var(--success); opacity: 0.7; }
+.note-card.done .note-text { text-decoration: line-through; color: var(--text-secondary); }
+.note-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px; }
+.note-badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; text-transform: uppercase;
+}
+.note-badge.task { background: #ede9fe; color: #6d28d9; }
+.note-badge.done { background: #d1fae5; color: #059669; }
+.note-text { font-size: 15px; line-height: 1.6; color: var(--text-primary); margin-bottom: 12px; word-break: break-word; }
+.note-footer { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary); }
+.note-actions { display: flex; gap: 4px; }
+.note-actions button {
+  background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px 6px; border-radius: 4px; transition: background 0.2s;
+}
+.note-actions button:hover { background: var(--bg-primary); }
+.empty-state { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-secondary); }
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+.empty-state h3 { font-size: 18px; margin-bottom: 8px; color: var(--text-primary); }
+
+/* Modal */
+.modal {
+  display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); align-items: center; justify-content: center;
+}
+.modal.show { display: flex; }
+.modal-content {
+  background: white; border-radius: var(--radius); padding: 32px; max-width: 500px; width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3); position: relative;
+}
+.modal-content h3 { font-size: 20px; margin-bottom: 20px; }
+.modal-content input, .modal-content textarea {
+  width: 100%; padding: 12px 16px; border: 2px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 15px; font-family: inherit; margin-bottom: 16px; transition: border-color 0.2s;
+}
+.modal-content input:focus, .modal-content textarea:focus { border-color: var(--accent); }
+.modal-content textarea { resize: vertical; min-height: 100px; }
+.modal-content .btn-primary { width: 100%; }
+.close {
+  position: absolute; right: 20px; top: 16px; font-size: 28px; cursor: pointer; color: var(--text-secondary);
+  transition: color 0.2s;
+}
+.close:hover { color: var(--text-primary); }
+.detail-content { min-height: 100px; }
+.detail-content .meta { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
+.detail-content .body { font-size: 16px; line-height: 1.7; white-space: pre-wrap; }
+.reminder-form { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.reminder-form h4 { margin-bottom: 12px; font-size: 14px; }
+.reminder-form input[type="datetime-local"] { width: 100%; padding: 10px 14px; border: 2px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }
+
+/* Scrollbar */
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+.main-content::-webkit-scrollbar { width: 6px; }
+.main-content::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+
+@media (max-width: 768px) {
+  .sidebar { width: 240px; min-width: 240px; }
+  .notes-grid { grid-template-columns: 1fr; padding: 16px; }
+  .content-header { padding: 16px; flex-wrap: wrap; }
+  .header-actions { width: 100%; }
+  .header-actions .btn-primary, .header-actions .btn-secondary { flex: 1; text-align: center; }
+}
+@media (max-width: 480px) {
+  .app-layout { flex-direction: column; }
+  .sidebar { width: 100%; min-width: auto; max-height: 200px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Login Page -->
+<div id="loginPage" class="login-page">
+  <div class="login-card">
+    <div class="logo-icon">🎯</div>
+    <h1>Тукан</h1>
+    <p class="subtitle">Ваш персональный органайзер</p>
+    <div class="login-form">
+      <div class="form-group">
+        <label for="userIdInput">Ваше имя / ID</label>
+        <input type="text" id="userIdInput" placeholder="Например: Иван" required>
+        <small>Введите любое имя для входа. Данные сохранятся в браузере.</small>
+      </div>
+      <button class="btn-primary" onclick="login()">Войти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard" style="display:none;">
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo-small">🎯</span>
+        <h2>Тукан</h2>
+        <span class="user-badge" id="userBadge">Пользователь</span>
+      </div>
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="🔍 Поиск заметок..." oninput="searchNotes(this.value)">
+      </div>
+      <div class="folders-list">
+        <div class="folders-header">
+          <h3>Папки</h3>
+          <button class="btn-icon" onclick="showCreateFolderModal()" title="Создать папку">+</button>
+        </div>
+        <div id="foldersContainer"></div>
+        <div class="folders-footer">
+          <span class="logout-link" onclick="logout()">🚪 Выйти</span>
+        </div>
+      </div>
+    </aside>
+    <main class="main-content">
+      <div class="content-header">
+        <h2 id="currentFolderName">Мои заметки</h2>
+        <div class="header-actions">
+          <button class="btn-primary" onclick="showCreateNoteModal()">+ Новая заметка</button>
+          <button class="btn-secondary" onclick="showCreateTaskModal()">✓ Новая задача</button>
+        </div>
+      </div>
+      <div id="notesContainer" class="notes-grid"></div>
+    </main>
+  </div>
+</div>
+
+<!-- Modal: Create Folder -->
+<div id="folderModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('folderModal')">&times;</span>
+    <h3>Новая папка</h3>
+    <input type="text" id="folderNameInput" placeholder="Название папки" maxlength="50">
+    <button class="btn-primary" onclick="createFolder()">Создать</button>
+  </div>
+</div>
+
+<!-- Modal: Create Note -->
+<div id="noteModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('noteModal')">&times;</span>
+    <h3>Новая заметка</h3>
+    <textarea id="noteContentInput" rows="4" placeholder="Текст заметки..."></textarea>
+    <button class="btn-primary" onclick="createNote()">Сохранить</button>
+  </div>
+</div>
+
+<!-- Modal: Create Task -->
+<div id="taskModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('taskModal')">&times;</span>
+    <h3>Новая задача</h3>
+    <textarea id="taskContentInput" rows="3" placeholder="Описание задачи..."></textarea>
+    <button class="btn-primary" onclick="createTask()">Создать задачу</button>
+  </div>
+</div>
+
+<!-- Modal: Detail -->
+<div id="detailModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('detailModal')">&times;</span>
+    <div id="detailContent"></div>
+  </div>
+</div>
+
+<script>
+// ============ State ============
+let currentUser = '';
+let activeFolderId = null;
+let activeFolderName = 'Мои заметки';
+let nextFolderId = 1;
+let nextNoteId = 1;
+
+function getData(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch(e) { return {}; }
+}
+function setData(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getFolders() {
+  const all = getData('toucan_data');
+  const userFolders = all[currentUser];
+  return userFolders ? userFolders.folders || [] : [];
+}
+function setFolders(folders) {
+  const all = getData('toucan_data');
+  if (!all[currentUser]) all[currentUser] = { folders: [], notes: [] };
+  all[currentUser].folders = folders;
+  setData('toucan_data', all);
+}
+function getNotes() {
+  const all = getData('toucan_data');
+  const userFolders = all[currentUser];
+  return userFolders ? userFolders.notes || [] : [];
+}
+function setNotes(notes) {
+  const all = getData('toucan_data');
+  if (!all[currentUser]) all[currentUser] = { folders: [], notes: [] };
+  all[currentUser].notes = notes;
+  setData('toucan_data', all);
+}
+
+// ============ Login ============
+function login() {
+  const name = document.getElementById('userIdInput').value.trim();
+  if (!name) { alert('Введите имя'); return; }
+  currentUser = name;
+  document.getElementById('userBadge').textContent = currentUser;
+  document.getElementById('loginPage').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  initUser();
+}
+
+function logout() {
+  currentUser = '';
+  document.getElementById('loginPage').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+}
+
+function initUser() {
+  const all = getData('toucan_data');
+  if (!all[currentUser]) {
+    all[currentUser] = {
+      folders: [{ id: 1, name: '📥 Общее' }],
+      notes: []
+    };
+    setData('toucan_data', all);
+  }
+  nextFolderId = Math.max(...all[currentUser].folders.map(f => f.id), 0) + 1;
+  nextNoteId = Math.max(...all[currentUser].notes.map(n => n.id), 0) + 1;
+  renderFolders();
+  if (all[currentUser].folders.length > 0) {
+    selectFolder(all[currentUser].folders[0].id);
+  }
+}
+
+// ============ Folders ============
+function renderFolders() {
+  const container = document.getElementById('foldersContainer');
+  const folders = getFolders();
+  const notes = getNotes();
+  container.innerHTML = folders.map(f => {
+    const count = notes.filter(n => n.folderId === f.id).length;
+    const activeClass = f.id === activeFolderId ? 'active' : '';
+    return `<div class="folder-item ${activeClass}" data-folder-id="${f.id}" onclick="selectFolder(${f.id})">
+      <span class="folder-icon">📁</span>
+      <span class="folder-name">${escapeHtml(f.name)}</span>
+      <span class="folder-count">${count}</span>
+    </div>`;
+  }).join('');
+}
+
+function selectFolder(folderId) {
+  activeFolderId = folderId;
+  const folders = getFolders();
+  const folder = folders.find(f => f.id === folderId);
+  if (folder) activeFolderName = folder.name;
+  document.getElementById('currentFolderName').textContent = activeFolderName;
+  renderFolders();
+  renderNotes();
+}
+
+function showCreateFolderModal() {
+  document.getElementById('folderNameInput').value = '';
+  document.getElementById('folderModal').classList.add('show');
+}
+
+function createFolder() {
+  const name = document.getElementById('folderNameInput').value.trim();
+  if (!name) return alert('Введите название папки');
+  const folders = getFolders();
+  folders.push({ id: nextFolderId++, name });
+  setFolders(folders);
+  closeModal('folderModal');
+  renderFolders();
+  selectFolder(folders[folders.length-1].id);
+}
+
+// ============ Notes / Tasks ============
+function renderNotes() {
+  const container = document.getElementById('notesContainer');
+  const notes = getNotes().filter(n => n.folderId === activeFolderId);
+  if (notes.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>Здесь пока пусто</h3><p>Создайте первую заметку или задачу</p></div>`;
+    return;
+  }
+  container.innerHTML = notes.map(n => renderNoteCard(n)).join('');
+}
+
+function renderNoteCard(note) {
+  const isTask = note.isTask;
+  const isDone = note.isDone;
+  const badgeClass = isTask ? (isDone ? 'done' : 'task') : '';
+  const badgeText = isTask ? (isDone ? '✓ Выполнено' : 'Задача') : 'Заметка';
+  const cardClass = isTask ? 'note-card task' : 'note-card';
+  const doneClass = isDone ? 'done' : '';
+  const content = note.content || '[пусто]';
+  return `<div class="${cardClass} ${doneClass}" onclick="showNoteDetail(${note.id})">
+    <div class="note-header">
+      <span class="note-badge ${badgeClass}">${badgeText}</span>
+      <div class="note-actions">
+        ${isTask ? `<button onclick="event.stopPropagation(); toggleDone(${note.id})" title="${isDone ? 'Отменить' : 'Выполнить'}">${isDone ? '↩️' : '✅'}</button>` : ''}
+        <button onclick="event.stopPropagation(); deleteNote(${note.id})" title="Удалить">🗑️</button>
+      </div>
+    </div>
+    <div class="note-text">${escapeHtml(content)}</div>
+    <div class="note-footer">
+      <span>${new Date(note.createdAt).toLocaleString('ru-RU')}</span>
+      ${note.assignedTo ? `<span>👤 ${note.assignedTo}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function showCreateNoteModal() {
+  document.getElementById('noteContentInput').value = '';
+  document.getElementById('noteModal').classList.add('show');
+}
+function showCreateTaskModal() {
+  document.getElementById('taskContentInput').value = '';
+  document.getElementById('taskModal').classList.add('show');
+}
+
+function createNote() {
+  const content = document.getElementById('noteContentInput').value.trim();
+  if (!content) return alert('Введите текст');
+  const notes = getNotes();
+  notes.push({ id: nextNoteId++, folderId: activeFolderId, content, isTask: false, isDone: false, assignedTo: null, createdAt: new Date().toISOString() });
+  setNotes(notes);
+  closeModal('noteModal');
+  renderNotes();
+  renderFolders();
+}
+
+function createTask() {
+  const content = document.getElementById('taskContentInput').value.trim();
+  if (!content) return alert('Введите описание задачи');
+  const notes = getNotes();
+  notes.push({ id: nextNoteId++, folderId: activeFolderId, content, isTask: true, isDone: false, assignedTo: null, createdAt: new Date().toISOString() });
+  setNotes(notes);
+  closeModal('taskModal');
+  renderNotes();
+  renderFolders();
+}
+
+function toggleDone(noteId) {
+  const notes = getNotes();
+  const note = notes.find(n => n.id === noteId);
+  if (note) { note.isDone = !note.isDone; setNotes(notes); renderNotes(); renderFolders(); }
+}
+
+function deleteNote(noteId) {
+  if (!confirm('Удалить заметку?')) return;
+  let notes = getNotes();
+  notes = notes.filter(n => n.id !== noteId);
+  setNotes(notes);
+  renderNotes();
+  renderFolders();
+}
+
+function showNoteDetail(noteId) {
+  const notes = getNotes();
+  const note = notes.find(n => n.id === noteId);
+  if (!note) return;
+  const isTask = note.isTask;
+  const isDone = note.isDone;
+  const modal = document.getElementById('detailModal');
+  const content = document.getElementById('detailContent');
+  content.innerHTML = `
+    <div class="meta">
+      <span>📁 Папка #${note.folderId}</span> ·
+      <span>📄 ${isTask ? 'Задача' : 'Заметка'}</span> ·
+      <span>🕐 ${new Date(note.createdAt).toLocaleString('ru-RU')}</span>
+    </div>
+    <div class="body">${escapeHtml(note.content)}</div>
+    ${isTask ? `<div style="margin-top:12px;"><span class="note-badge ${isDone ? 'done' : 'task'}">${isDone ? '✅ Выполнено' : '⬜ В работе'}</span></div>` : ''}
+    <div class="reminder-form">
+      <h4>⏰ Напоминание (хранится локально)</h4>
+      <input type="datetime-local" id="reminderTime">
+      <button class="btn-primary" onclick="setLocalReminder(${noteId})">Сохранить</button>
+    </div>
+  `;
+  modal.classList.add('show');
+}
+
+function setLocalReminder(noteId) {
+  const timeInput = document.getElementById('reminderTime');
+  if (!timeInput.value) return alert('Выберите время');
+  const notes = getNotes();
+  const note = notes.find(n => n.id === noteId);
+  if (note) { note.remindAt = timeInput.value; setNotes(notes); }
+  alert('✅ Напоминание сохранено (время: ' + timeInput.value + '). Чтобы сработало — добавьте сервер.');
+}
+
+// ============ Search ============
+let searchTimeout;
+function searchNotes(query) {
+  clearTimeout(searchTimeout);
+  if (!query.trim()) { renderNotes(); return; }
+  searchTimeout = setTimeout(() => {
+    const notes = getNotes().filter(n => n.content.toLowerCase().includes(query.toLowerCase()));
+    const container = document.getElementById('notesContainer');
+    if (notes.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>Ничего не найдено</h3></div>';
+      return;
+    }
+    container.innerHTML = notes.map(n => renderNoteCard(n)).join('');
+  }, 300);
+}
+
+// ============ Modal ============
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+document.querySelectorAll('.modal').forEach(el => {
+  el.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
+});
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

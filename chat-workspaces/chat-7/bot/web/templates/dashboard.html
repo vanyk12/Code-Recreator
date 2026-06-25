@@ -1,0 +1,109 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тукан — {{ username }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Боковая панель -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="logo-small">🎯</span>
+                <h2>Тукан</h2>
+                <span class="user-badge">{{ user_id }}</span>
+            </div>
+
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="🔍 Поиск заметок..." 
+                       oninput="searchNotes(this.value)">
+            </div>
+
+            <div class="folders-list">
+                <div class="folders-header">
+                    <h3>Папки</h3>
+                    <button class="btn-icon" onclick="showCreateFolderModal()" title="Создать папку">+</button>
+                </div>
+                <div id="foldersContainer">
+                    {% for fid, fname in folders %}
+                    <div class="folder-item {% if loop.first %}active{% endif %}" 
+                         data-folder-id="{{ fid }}" onclick="selectFolder({{ fid }})">
+                        <span class="folder-icon">📁</span>
+                        <span class="folder-name">{{ fname }}</span>
+                        <span class="folder-count" id="count-{{ fid }}">0</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="folders-footer">
+                    <a href="/?logout=1" class="logout-link">🚪 Выйти</a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Основной контент -->
+        <main class="main-content">
+            <div class="content-header">
+                <h2 id="currentFolderName">
+                    {% if folders %}{{ folders[0][1] }}{% else %}Нет папок{% endif %}
+                </h2>
+                <div class="header-actions">
+                    <button class="btn-primary" onclick="showCreateNoteModal()">+ Новая заметка</button>
+                    <button class="btn-secondary" onclick="showCreateTaskModal()">✓ Новая задача</button>
+                </div>
+            </div>
+
+            <div id="notesContainer" class="notes-grid">
+                <!-- Заметки загружаются через JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Модальное окно создания папки -->
+    <div id="folderModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('folderModal')">&times;</span>
+            <h3>Новая папка</h3>
+            <input type="text" id="folderNameInput" placeholder="Название папки" maxlength="50">
+            <button class="btn-primary" onclick="createFolder()">Создать</button>
+        </div>
+    </div>
+
+    <!-- Модальное окно создания заметки -->
+    <div id="noteModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('noteModal')">&times;</span>
+            <h3>Новая заметка</h3>
+            <textarea id="noteContentInput" rows="4" placeholder="Текст заметки..."></textarea>
+            <button class="btn-primary" onclick="createNote()">Сохранить</button>
+        </div>
+    </div>
+
+    <!-- Модальное окно создания задачи -->
+    <div id="taskModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('taskModal')">&times;</span>
+            <h3>Новая задача</h3>
+            <textarea id="taskContentInput" rows="3" placeholder="Описание задачи..."></textarea>
+            <button class="btn-primary" onclick="createTask()">Создать задачу</button>
+        </div>
+    </div>
+
+    <!-- Модальное окно деталей заметки -->
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('detailModal')">&times;</span>
+            <div id="detailContent"></div>
+        </div>
+    </div>
+
+    <input type="hidden" id="user_id" value="{{ user_id }}">
+    <input type="hidden" id="activeFolderId" value="{% if folders %}{{ folders[0][0] }}{% else %}0{% endif %}">
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -56,11 +56,75 @@ router.get("/workspace/:chatId/*filePath", async (req, res) => {
     if (!fullPath.startsWith(path.resolve(chatRoot))) { res.status(403).send("Forbidden"); return; }
     const content = await fs.readFile(fullPath);
     const ext = path.extname(filePath).slice(1).toLowerCase();
-    res.setHeader("Content-Type", getMime(ext));
+    const mime = getMime(ext);
     res.setHeader("Cache-Control", "no-store");
+
+    // For HTML files: detect server-side templates and fix relative asset paths
+    if (ext === "html" || ext === "htm") {
+      const html = content.toString("utf-8");
+
+      // Detect server-side template syntax (Jinja2, Django, Handlebars, ERB, Twig, Blade)
+      const TEMPLATE_RE = /\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}|\{#[\s\S]*?#\}|<%[\s\S]*?%>|@(if|foreach|for|extends|yield|section)\b/;
+      const isTemplate = TEMPLATE_RE.test(html);
+
+      if (isTemplate) {
+        // Return a nicely styled source-code view with a server-side notice
+        const escaped = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const templatePage = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Превью: ${filePath}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  .banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    background: rgba(249,115,22,0.12); border-bottom: 1px solid rgba(249,115,22,0.25); }
+  .banner-icon { font-size: 18px; }
+  .banner-title { font-weight: 600; color: #fb923c; font-size: 13px; }
+  .banner-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+  .file-label { margin-left: auto; font-family: monospace; font-size: 10px;
+    background: rgba(249,115,22,0.15); color: #fdba74; padding: 3px 8px; border-radius: 6px; }
+  .source { padding: 16px; overflow-x: auto; }
+  pre { font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 12px;
+    line-height: 1.7; color: #94a3b8; white-space: pre-wrap; word-break: break-all; }
+  .kw  { color: #fb923c; } /* {% %} keywords */
+  .var { color: #38bdf8; } /* {{ }} variables */
+  .cmt { color: #475569; } /* {# #} comments */
+  .tag { color: #a78bfa; } /* HTML tags */
+  .attr { color: #34d399; } /* HTML attributes */
+  .str { color: #fbbf24; } /* attribute values */
+</style></head><body>
+<div class="banner">
+  <span class="banner-icon">⚙️</span>
+  <div>
+    <div class="banner-title">Серверный шаблон — статический просмотр недоступен</div>
+    <div class="banner-sub">Этот файл использует Jinja2/Django/Handlebars синтаксис. Запустите сервер в Терминале для реального рендеринга.</div>
+  </div>
+  <span class="file-label">${filePath}</span>
+</div>
+<div class="source"><pre>${escaped}</pre></div>
+</body></html>`;
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.send(templatePage);
+        return;
+      }
+
+      // Pure static HTML: inject <base href> so relative assets (CSS, images, JS) load correctly
+      const dir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/") + 1) : "";
+      const baseHref = `/api/workspace/${chatId}/${dir}`;
+      let patched = html;
+      if (/<head[^>]*>/i.test(patched)) {
+        patched = patched.replace(/(<head[^>]*>)/i, `$1\n  <base href="${baseHref}">`);
+      } else {
+        patched = `<base href="${baseHref}">` + patched;
+      }
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(patched);
+      return;
+    }
+
+    res.setHeader("Content-Type", mime);
     res.send(content);
   } catch (err: unknown) {
-    res.status(404).send(`<pre>${(err as Error).message}</pre>`);
+    res.status(404).send(`<!DOCTYPE html><html><body style="font-family:monospace;background:#0f172a;color:#94a3b8;padding:24px"><pre>Файл не найден:\n${(err as Error).message}</pre></body></html>`);
   }
 });
 

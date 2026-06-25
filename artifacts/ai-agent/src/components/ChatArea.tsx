@@ -14,7 +14,7 @@ import {
   FileCode, Terminal, Play, CheckCircle2, X,
   FolderOpen, Search, Globe, File, TestTube2,
   GitCompare, Package, Shield, Plug, Mic, MicOff,
-  FileText, ExternalLink, FlaskConical
+  FileText, ExternalLink, FlaskConical, Eye
 } from "lucide-react";
 
 /* ─────────────── Octopus animation ─────────────── */
@@ -128,6 +128,7 @@ function CommandConfirmBadge({
 /* ─────────────── File action badge ─────────────── */
 function FileActionBadge({ label, chatId, streamingLabel }: { label: string; chatId?: number; streamingLabel?: string }) {
   const [showPreview, setShowPreview] = useState(false);
+  const [previewHeight, setPreviewHeight] = useState(400);
   const isHtml = label.endsWith(".html") || label.endsWith(".htm");
 
   if (label === "__streaming__") {
@@ -146,36 +147,65 @@ function FileActionBadge({ label, chatId, streamingLabel }: { label: string; cha
 
   return (
     <div className="my-1.5">
-      <div className="inline-flex items-center gap-1.5">
+      <div className="inline-flex items-center gap-1.5 flex-wrap">
         <div className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-xl font-mono border bg-accent/10 border-accent/20 text-accent">
           <FileCode size={10} className="shrink-0" /> {label}
         </div>
         {isHtml && (
-          <button
-            onClick={() => setShowPreview(p => !p)}
-            className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border transition-all"
-            style={{
-              background: showPreview ? "rgba(249,115,22,0.15)" : "rgba(249,115,22,0.06)",
-              borderColor: "rgba(249,115,22,0.3)",
-              color: "rgba(253,186,116,0.9)"
-            }}
-          >
-            <ExternalLink size={9} />
-            {showPreview ? "Скрыть" : "Превью"}
-          </button>
+          <>
+            <button
+              onClick={() => setShowPreview(p => !p)}
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border transition-all"
+              style={{
+                background: showPreview ? "rgba(249,115,22,0.15)" : "rgba(249,115,22,0.06)",
+                borderColor: "rgba(249,115,22,0.3)",
+                color: "rgba(253,186,116,0.9)"
+              }}
+            >
+              <Eye size={9} />
+              {showPreview ? "Скрыть" : "Превью"}
+            </button>
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border transition-all"
+              style={{
+                background: "rgba(99,102,241,0.06)",
+                borderColor: "rgba(99,102,241,0.25)",
+                color: "rgba(165,180,252,0.9)",
+                textDecoration: "none"
+              }}
+            >
+              <ExternalLink size={9} />
+              Открыть
+            </a>
+          </>
         )}
       </div>
       {isHtml && showPreview && (
         <div className="mt-2 rounded-xl overflow-hidden border" style={{ borderColor: "rgba(249,115,22,0.2)" }}>
           <div className="flex items-center gap-2 px-2.5 py-1.5 text-[10px]"
-            style={{ background: "rgba(249,115,22,0.06)", color: "rgba(253,186,116,0.7)" }}>
-            <ExternalLink size={9} /> HTML Превью — {label}
+            style={{ background: "rgba(249,115,22,0.06)", borderBottom: "1px solid rgba(249,115,22,0.12)", color: "rgba(253,186,116,0.7)" }}>
+            <Eye size={9} />
+            <span className="font-mono">{label}</span>
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={() => setPreviewHeight(h => Math.max(250, h - 150))}
+                className="px-1.5 py-0.5 rounded text-[10px] hover:bg-white/5 transition-colors" title="Уменьшить">▲</button>
+              <button onClick={() => setPreviewHeight(h => h + 150)}
+                className="px-1.5 py-0.5 rounded text-[10px] hover:bg-white/5 transition-colors" title="Увеличить">▼</button>
+              <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                className="px-1.5 py-0.5 rounded text-[10px] hover:bg-white/5 transition-colors" title="Открыть в новой вкладке">
+                <ExternalLink size={9} />
+              </a>
+            </div>
           </div>
           <iframe
+            key={previewUrl}
             src={previewUrl}
             className="w-full"
-            style={{ height: 380, border: "none", background: "white" }}
-            sandbox="allow-scripts allow-same-origin"
+            style={{ height: previewHeight, border: "none", background: "white" }}
+            sandbox="allow-scripts allow-same-origin allow-forms"
             title={`Превью ${label}`}
           />
         </div>
