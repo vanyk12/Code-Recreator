@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle } from "lucide-react";
+import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle, Bot, RefreshCw, Copy, Check } from "lucide-react";
 
 interface Settings {
   openrouterKey: string;
@@ -20,6 +20,10 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
   const [saved, setSaved] = useState(false);
   const [keyStored, setKeyStored] = useState(false);
 
+  const [botToken, setBotToken] = useState<string | null>(null);
+  const [botTokenLoading, setBotTokenLoading] = useState(false);
+  const [botTokenCopied, setBotTokenCopied] = useState(false);
+
   useEffect(() => {
     if (open) {
       fetch("/api/settings")
@@ -33,8 +37,32 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
           });
         })
         .catch(() => {});
+
+      fetch("/api/bot-token")
+        .then(r => r.json())
+        .then((data: { token: string | null }) => setBotToken(data.token))
+        .catch(() => {});
     }
   }, [open]);
+
+  const generateBotToken = async () => {
+    setBotTokenLoading(true);
+    try {
+      const res = await fetch("/api/bot-token", { method: "POST" });
+      const data = await res.json() as { token: string };
+      setBotToken(data.token);
+    } finally {
+      setBotTokenLoading(false);
+    }
+  };
+
+  const copyBotToken = () => {
+    if (!botToken) return;
+    navigator.clipboard.writeText(botToken).then(() => {
+      setBotTokenCopied(true);
+      setTimeout(() => setBotTokenCopied(false), 2000);
+    });
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -157,6 +185,38 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Bot size={14} className="text-green-400" />
+                Токен Telegram-бота
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Скопируй токен и введи его в боте командой <span className="font-mono text-green-400/80">/connect &lt;токен&gt;</span>
+              </p>
+              {botToken ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-input border border-border rounded-xl px-4 py-2.5 font-mono text-xs text-green-400 truncate select-all">
+                    {botToken}
+                  </div>
+                  <button onClick={copyBotToken} title="Скопировать"
+                    className="p-2.5 rounded-xl bg-card border border-border hover:border-green-400/40 text-muted-foreground hover:text-green-400 transition-colors flex-shrink-0">
+                    {botTokenCopied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                  </button>
+                  <button onClick={generateBotToken} disabled={botTokenLoading} title="Сгенерировать новый"
+                    className="p-2.5 rounded-xl bg-card border border-border hover:border-border/80 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
+                    <RefreshCw size={14} className={botTokenLoading ? "animate-spin" : ""} />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={generateBotToken} disabled={botTokenLoading}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-dashed border-border hover:border-green-400/40 text-sm text-muted-foreground hover:text-green-400 transition-colors">
+                  {botTokenLoading
+                    ? <><RefreshCw size={14} className="animate-spin" /> Генерируем...</>
+                    : <><Bot size={14} /> Сгенерировать токен</>}
+                </button>
+              )}
             </div>
 
             <div className="pt-2">
