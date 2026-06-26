@@ -100,12 +100,12 @@ Always use <create_file> — even for simple one-liners. This is the ONLY way fi
 ## WHEN CLONING A TELEGRAM BOT (after crawl_telegram_bot result)
 
 After receiving the bot menu structure, you MUST:
-1. **Immediately create ALL files** using <create_file> — do NOT ask questions first, just build it
+1. **Immediately create ALL files** using <create_file> — do NOT ask questions before building
 2. Build a real working Python bot (python-telegram-bot) with EXACT button texts from crawl result
 3. Match the EXACT menu hierarchy and inline keyboard layouts from the crawl
 4. Create all necessary files: main.py, requirements.txt, .env.example, README.md
-5. After all files are created — write a SHORT summary (5-10 lines max) and STOP completely
-6. Do NOT ask "хочешь добавить X?" or offer extras — just finish and stop. User will ask if needed.`;
+5. After creating all files — write a short summary of what was built
+6. Then use your own judgment: if there are obvious improvements or missing features you noticed during the crawl, briefly suggest them. Otherwise just finish.`;
 
 /* ── build a compact file tree ───────────────────────────────────────── */
 async function buildFileTree(dir: string, prefix: string, depth: number): Promise<string> {
@@ -486,9 +486,9 @@ async function crawlTelegramBot(username: string, sessionString: string): Promis
       if (helpMsgs.length) results.push(describeMsg(helpMsgs, "/help (список команд)"));
     } catch {}
 
-    // Recursively click inline buttons (3 levels deep)
+    // Recursively click inline buttons (up to 5 levels deep)
     async function crawlMsg(msg: any, depth: number, pathLabel: string) {
-      if (depth > 3 || !msg?.replyMarkup?.rows) return;
+      if (depth > 5 || !msg?.replyMarkup?.rows) return;
       const rows: any[] = msg.replyMarkup.rows || [];
 
       for (const row of rows) {
