@@ -728,6 +728,9 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
 
         {messages?.map(msg => {
           const msgCmds = cmdStates.get(msg.id);
+          const timeStr = msg.createdAt
+            ? new Date(msg.createdAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })
+            : null;
           return (
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[82%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 ${
@@ -741,13 +744,18 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
                   pendingCmds={msgCmds}
                   onCmdStateChange={(cmd, state, out, code) => handleCmdState(msg.id, cmd, state, out, code)}
                 />
-                {msg.role === "assistant" && msg.tokensUsed > 0 && (
-                  <div className="mt-2 flex justify-end">
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  {msg.role === "assistant" && msg.tokensUsed > 0 && (
                     <span className="text-[10px] text-muted-foreground/35 bg-black/15 px-2 py-0.5 rounded-full">
                       {msg.tokensUsed.toLocaleString("ru")} тк
                     </span>
-                  </div>
-                )}
+                  )}
+                  {timeStr && (
+                    <span className="text-[10px] text-muted-foreground/30 select-none">
+                      {timeStr}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           );
