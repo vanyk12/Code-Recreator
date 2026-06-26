@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle, Bot, RefreshCw, Copy, Check } from "lucide-react";
+import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle, Bot, RefreshCw, Check } from "lucide-react";
 
 interface Settings {
   openrouterKey: string;
@@ -21,8 +21,10 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
   const [keyStored, setKeyStored] = useState(false);
 
   const [botToken, setBotToken] = useState<string | null>(null);
-  const [botTokenLoading, setBotTokenLoading] = useState(false);
-  const [botTokenCopied, setBotTokenCopied] = useState(false);
+  const [botTokenInput, setBotTokenInput] = useState("");
+  const [botTokenSaving, setBotTokenSaving] = useState(false);
+  const [botTokenSaved, setBotTokenSaved] = useState(false);
+  const [botTokenError, setBotTokenError] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -45,23 +47,31 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
     }
   }, [open]);
 
-  const generateBotToken = async () => {
-    setBotTokenLoading(true);
+  const saveBotToken = async () => {
+    if (!botTokenInput.trim()) return;
+    setBotTokenSaving(true);
+    setBotTokenError("");
     try {
-      const res = await fetch("/api/bot-token", { method: "POST" });
-      const data = await res.json() as { token: string };
-      setBotToken(data.token);
+      const res = await fetch("/api/bot-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: botTokenInput.trim() }),
+      });
+      const data = await res.json() as { token?: string; error?: string };
+      if (!res.ok) { setBotTokenError(data.error ?? "Ошибка"); return; }
+      setBotToken(data.token ?? null);
+      setBotTokenInput("");
+      setBotTokenSaved(true);
+      setTimeout(() => setBotTokenSaved(false), 2000);
     } finally {
-      setBotTokenLoading(false);
+      setBotTokenSaving(false);
     }
   };
 
-  const copyBotToken = () => {
-    if (!botToken) return;
-    navigator.clipboard.writeText(botToken).then(() => {
-      setBotTokenCopied(true);
-      setTimeout(() => setBotTokenCopied(false), 2000);
-    });
+  const removeBotToken = async () => {
+    await fetch("/api/bot-token", { method: "DELETE" });
+    setBotToken(null);
+    setBotTokenInput("");
   };
 
   const handleSave = async () => {
@@ -193,30 +203,33 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
                 Токен Telegram-бота
               </label>
               <p className="text-xs text-muted-foreground">
-                Скопируй токен и введи его в боте командой <span className="font-mono text-green-400/80">/connect &lt;токен&gt;</span>
+                Напиши боту <span className="font-mono text-green-400/80">/connect</span> — он пришлёт токен. Вставь его сюда.
               </p>
               {botToken ? (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-input border border-border rounded-xl px-4 py-2.5 font-mono text-xs text-green-400 truncate select-all">
-                    {botToken}
-                  </div>
-                  <button onClick={copyBotToken} title="Скопировать"
-                    className="p-2.5 rounded-xl bg-card border border-border hover:border-green-400/40 text-muted-foreground hover:text-green-400 transition-colors flex-shrink-0">
-                    {botTokenCopied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                  </button>
-                  <button onClick={generateBotToken} disabled={botTokenLoading} title="Сгенерировать новый"
-                    className="p-2.5 rounded-xl bg-card border border-border hover:border-border/80 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
-                    <RefreshCw size={14} className={botTokenLoading ? "animate-spin" : ""} />
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-green-400/5 border border-green-400/20">
+                  <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
+                  <span className="text-xs text-green-400 flex-1">Бот подключён</span>
+                  <button onClick={removeBotToken}
+                    className="text-xs text-muted-foreground hover:text-red-400 transition-colors underline">
+                    Отключить
                   </button>
                 </div>
-              ) : (
-                <button onClick={generateBotToken} disabled={botTokenLoading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-dashed border-border hover:border-green-400/40 text-sm text-muted-foreground hover:text-green-400 transition-colors">
-                  {botTokenLoading
-                    ? <><RefreshCw size={14} className="animate-spin" /> Генерируем...</>
-                    : <><Bot size={14} /> Сгенерировать токен</>}
+              ) : null}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={botTokenInput}
+                  onChange={e => { setBotTokenInput(e.target.value); setBotTokenError(""); }}
+                  onKeyDown={e => e.key === "Enter" && saveBotToken()}
+                  placeholder={botToken ? "Вставь новый токен чтобы заменить" : "Вставь токен из /connect..."}
+                  className="flex-1 bg-input border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-green-400/50 focus:border-green-400/50 font-mono"
+                />
+                <button onClick={saveBotToken} disabled={botTokenSaving || !botTokenInput.trim()}
+                  className="px-4 py-2.5 rounded-xl bg-green-400/10 border border-green-400/30 hover:bg-green-400/20 text-green-400 text-sm font-medium transition-colors disabled:opacity-40 flex-shrink-0">
+                  {botTokenSaved ? <Check size={14} /> : botTokenSaving ? <RefreshCw size={14} className="animate-spin" /> : "Сохранить"}
                 </button>
-              )}
+              </div>
+              {botTokenError && <p className="text-xs text-red-400">{botTokenError}</p>}
             </div>
 
             <div className="pt-2">

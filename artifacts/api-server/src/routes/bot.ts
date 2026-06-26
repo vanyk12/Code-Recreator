@@ -37,20 +37,25 @@ async function getModel(userId: string): Promise<string> {
 }
 
 /* ── POST /api/bot-token ──────────────────────────────────────────────── */
-// Authenticated user generates or replaces their bot-link token
+// Authenticated user saves the token they received from the Telegram bot (/connect)
 router.post("/bot-token", requireAuth, async (req, res) => {
   const userId = (req as import("express").Request & { userId: string }).userId;
+  const { token } = req.body as { token?: string };
+
+  if (!token || typeof token !== "string" || token.trim().length < 8) {
+    res.status(400).json({ error: "Введи токен из бота (команда /connect)" });
+    return;
+  }
+
   try {
+    const trimmed = token.trim();
     // Delete existing token(s) for this user
     await db.delete(botTokensTable).where(eq(botTokensTable.clerkUserId, userId));
-
-    const token = randomBytes(20).toString("hex");
-    await db.insert(botTokensTable).values({ token, clerkUserId: userId });
-
-    res.json({ token });
+    await db.insert(botTokensTable).values({ token: trimmed, clerkUserId: userId });
+    res.json({ token: trimmed });
   } catch (err) {
     req.log.error(err);
-    res.status(500).json({ error: "Failed to generate token" });
+    res.status(500).json({ error: "Failed to save token" });
   }
 });
 
