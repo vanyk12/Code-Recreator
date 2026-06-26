@@ -1521,13 +1521,18 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
   };
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("X-Accel-Buffering", "no");   // disable nginx/proxy buffering
+  res.setHeader("Transfer-Encoding", "chunked");
   res.flushHeaders();
 
   const send = (data: object) => {
+    if (res.writableEnded) return;
     res.write(`data: ${JSON.stringify(data)}\n\n`);
+    // Force-flush each SSE event so chunks arrive immediately in all T modes
+    (res as any).flush?.();
   };
 
   try {
