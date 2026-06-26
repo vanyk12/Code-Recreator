@@ -95,7 +95,17 @@ CORRECT (file IS saved to workspace):
 print("Hello, world!")
 </create_file>
 
-Always use <create_file> — even for simple one-liners. This is the ONLY way files get saved.`;
+Always use <create_file> — even for simple one-liners. This is the ONLY way files get saved.
+
+## WHEN CLONING A TELEGRAM BOT (after crawl_telegram_bot result)
+
+After receiving the bot menu structure, you MUST:
+1. **Immediately create ALL files** using <create_file> — do NOT ask questions first, just build it
+2. Build a real working Python bot (python-telegram-bot) with EXACT button texts from crawl result
+3. Match the EXACT menu hierarchy and inline keyboard layouts from the crawl
+4. Create all necessary files: main.py, requirements.txt, .env.example, README.md
+5. After all files are created — write a SHORT summary (5-10 lines max) and STOP completely
+6. Do NOT ask "хочешь добавить X?" or offer extras — just finish and stop. User will ask if needed.`;
 
 /* ── build a compact file tree ───────────────────────────────────────── */
 async function buildFileTree(dir: string, prefix: string, depth: number): Promise<string> {
@@ -413,38 +423,72 @@ async function crawlTelegramBot(username: string, sessionString: string): Promis
     const results: string[] = [];
     const visited = new Set<string>();
 
-    // Wait for bot response after action
-    async function waitForBotMsg(lastId: number): Promise<any> {
-      await new Promise(r => setTimeout(r, 2000));
-      const msgs = await client.getMessages(entity, { limit: 5 });
-      const botMsgs = (msgs as any[]).filter(
-        (m: any) => !m.out && (m.id > lastId || lastId === 0)
-      );
-      return botMsgs[0] || null;
+    // Wait for bot response — polls twice to catch slow bots
+    async function waitForBotMsgs(lastId: number): Promise<any[]> {
+      await new Promise(r => setTimeout(r, 2500));
+      const msgs = await client.getMessages(entity, { limit: 10 }) as any[];
+      let newMsgs = msgs.filter((m: any) => !m.out && m.id > lastId);
+      // If nothing yet, wait another second
+      if (newMsgs.length === 0) {
+        await new Promise(r => setTimeout(r, 1500));
+        const msgs2 = await client.getMessages(entity, { limit: 10 }) as any[];
+        newMsgs = msgs2.filter((m: any) => !m.out && m.id > lastId);
+      }
+      return newMsgs.sort((a: any, b: any) => a.id - b.id);
     }
 
-    function describeMsg(msg: any, label: string): string {
-      const text = (msg?.message || "(нет текста)").slice(0, 300);
-      const rows = msg?.replyMarkup?.rows || [];
-      const btnLines = (rows as any[]).map((row: any) =>
-        (row.buttons as any[]).map((b: any) => `[${b.text || "?"}]`).join(" ")
-      );
-      return `### ${label}\n**Текст:** ${text}\n**Кнопки:** ${btnLines.join(" / ") || "(нет)"}`;
+    function describeMsg(msgs: any[], label: string): string {
+      const lines: string[] = [`### ${label}`];
+      for (const msg of msgs) {
+        const text = (msg?.message || "").trim().slice(0, 400);
+        if (text) lines.push(`**Текст:** ${text}`);
+        const rows = msg?.replyMarkup?.rows || [];
+        const btnRows = (rows as any[]).map((row: any) =>
+          (row.buttons as any[]).map((b: any) => {
+            const t = b.text || "?";
+            const type = b.className?.includes("Url") ? " (ссылка)" :
+                         b.className?.includes("Callback") ? "" : " (текст)";
+            return `[${t}${type}]`;
+          }).join("  ")
+        );
+        if (btnRows.length) lines.push(`**Кнопки:**\n${btnRows.join("\n")}`);
+        // Also capture reply keyboard (non-inline)
+        const replyRows = msg?.replyMarkup?.rows?.filter?.((r: any) =>
+          r.buttons?.some?.((b: any) => b.className === "KeyboardButton")
+        ) || [];
+        if (replyRows.length) {
+          const rBtns = replyRows.map((row: any) =>
+            row.buttons.map((b: any) => `[${b.text}]`).join("  ")
+          );
+          lines.push(`**Reply-клавиатура:**\n${rBtns.join("\n")}`);
+        }
+      }
+      return lines.join("\n");
     }
 
-    // Send /start and record response
+    // Send /start
     const preStartMsgs = await client.getMessages(entity, { limit: 1 }) as any[];
     const lastId = preStartMsgs[0]?.id || 0;
     await client.sendMessage(entity, { message: "/start" });
-    const startMsg = await waitForBotMsg(lastId);
-    if (!startMsg) {
-      return "⚠️ Бот не ответил на /start в течение 2 секунд";
+    const startMsgs = await waitForBotMsgs(lastId);
+    if (!startMsgs.length) {
+      return "⚠️ Бот не ответил на /start в течение 4 секунд";
     }
-    results.push(describeMsg(startMsg, "/start (главное меню)"));
+    results.push(describeMsg(startMsgs, "/start (главное меню)"));
+    const startMsg = startMsgs[startMsgs.length - 1]; // last message has the keyboard
 
-    // Recursively click inline buttons
+    // Also try /help to get command list
+    try {
+      const beforeHelp = await client.getMessages(entity, { limit: 1 }) as any[];
+      const helpLastId = (beforeHelp[0]?.id || 0) as number;
+      await client.sendMessage(entity, { message: "/help" });
+      const helpMsgs = await waitForBotMsgs(helpLastId);
+      if (helpMsgs.length) results.push(describeMsg(helpMsgs, "/help (список команд)"));
+    } catch {}
+
+    // Recursively click inline buttons (3 levels deep)
     async function crawlMsg(msg: any, depth: number, pathLabel: string) {
-      if (depth > 2 || !msg?.replyMarkup?.rows) return;
+      if (depth > 3 || !msg?.replyMarkup?.rows) return;
       const rows: any[] = msg.replyMarkup.rows || [];
 
       for (const row of rows) {
@@ -455,8 +499,8 @@ async function crawlTelegramBot(username: string, sessionString: string): Promis
           visited.add(key);
 
           try {
-            const beforeMsgs = await client.getMessages(entity, { limit: 1 }) as any[];
-            const beforeId = beforeMsgs[0]?.id || 0;
+            const beforeMsgs2 = await client.getMessages(entity, { limit: 1 }) as any[];
+            const beforeId = (beforeMsgs2[0]?.id || 0) as number;
 
             if (btn.className === "KeyboardButtonCallback" && btn.data) {
               await client.invoke(new Api.messages.GetBotCallbackAnswer({
@@ -464,14 +508,20 @@ async function crawlTelegramBot(username: string, sessionString: string): Promis
                 msgId: msg.id,
                 data: btn.data,
               }));
+            } else if (btn.className === "KeyboardButtonUrl") {
+              results.push(`### ${pathLabel} → [${btnText}]\n**Тип:** URL-кнопка (${btn.url || ""})`);
+              continue;
             } else {
               await client.sendMessage(entity, { message: btnText });
             }
 
-            const resp = await waitForBotMsg(beforeId);
-            if (resp && resp.id !== msg.id) {
-              results.push(describeMsg(resp, `${pathLabel} → [${btnText}]`));
-              await crawlMsg(resp, depth + 1, `${pathLabel} → [${btnText}]`);
+            const respMsgs = await waitForBotMsgs(beforeId);
+            if (respMsgs.length) {
+              results.push(describeMsg(respMsgs, `${pathLabel} → [${btnText}]`));
+              const lastResp = respMsgs[respMsgs.length - 1];
+              if (lastResp.id !== msg.id) {
+                await crawlMsg(lastResp, depth + 1, `${pathLabel} → [${btnText}]`);
+              }
             }
           } catch (e) {
             results.push(`⚠️ Кнопка [${btnText}]: ${e instanceof Error ? e.message : String(e)}`);
