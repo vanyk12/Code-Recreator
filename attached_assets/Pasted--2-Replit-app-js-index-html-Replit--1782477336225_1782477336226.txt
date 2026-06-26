@@ -1,0 +1,107 @@
+Шаг 2. Как настроить Агента на Replit (в app.js или index.html)
+Чтобы Агент на Replit мог получать и отправлять данные бота, вы можете использовать следующие функции на JavaScript.
+
+1. Инициализация Telegram SDK и получение User ID:
+Добавьте в HTML-файл Агента скрипт Telegram WebApp:
+
+html
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+2. JavaScript код для синхронизации в Агенте (вставьте/интегрируйте в ваш app.js):
+javascript
+// Адрес вашего бота на Railway (замените на ваш реальный URL из панели Railway!)
+const BOT_API_URL = "https://gemini-chatbot-production.up.railway.app"; 
+// Автоматически получаем ID пользователя, открывшего Mini App в Telegram
+const tg = window.Telegram?.WebApp;
+const userId = tg?.initDataUnsafe?.user?.id || 123456789; // 123456789 — это заглушка для тестов в браузере
+// ----------------------------------------------------
+// 1. Получить настройки пользователя из бота
+// ----------------------------------------------------
+async function loadSettingsFromBot() {
+  try {
+    const response = await fetch(`${BOT_API_URL}/api/settings?user_id=${userId}`);
+    const data = await response.json();
+    console.log("Загруженные настройки:", data);
+    
+    // Пример применения настроек в вашем веб-интерфейсе:
+    if (data.settings) {
+      // Записываем в форму настройки автоответа, лимит истории, личность бота и т.д.
+      document.getElementById("auto-reply-checkbox").checked = data.settings.auto_reply;
+      document.getElementById("persona-textarea").value = data.settings.persona || "";
+    }
+  } catch (error) {
+    console.error("Ошибка загрузки настроек:", error);
+  }
+}
+// ----------------------------------------------------
+// 2. Сохранить измененные настройки в боте
+// ----------------------------------------------------
+async function saveSettingsToBot(newSettings) {
+  try {
+    const response = await fetch(`${BOT_API_URL}/api/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: userId,
+        ...newSettings // Передаем { auto_reply, persona, max_history, mode }
+      })
+    });
+    const result = await response.json();
+    if (result.status === "success") {
+      console.log("Настройки успешно синхронизированы с ботом!");
+    }
+  } catch (error) {
+    console.error("Ошибка сохранения настроек:", error);
+  }
+}
+// ----------------------------------------------------
+// 3. Получить список отложенных сообщений
+// ----------------------------------------------------
+async function loadScheduledTasks() {
+  try {
+    const response = await fetch(`${BOT_API_URL}/api/tasks?user_id=${userId}`);
+    const data = await response.json();
+    console.log("Отложенные сообщения:", data.tasks);
+    // Отрисовываем задачи на вашей веб-странице
+  } catch (error) {
+    console.error("Ошибка загрузки задач:", error);
+  }
+}
+// ----------------------------------------------------
+// 4. Запланировать новое сообщение из Агента
+// ----------------------------------------------------
+async function createScheduledTask(chatId, text, runAtISOStr) {
+  try {
+    const response = await fetch(`${BOT_API_URL}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: userId,
+        chat_id: chatId,
+        text: text,
+        run_at: runAtISOStr // Например, "2026-06-25T16:30:00+03:00"
+      })
+    });
+    const result = await response.json();
+    console.log("Задача запланирована:", result);
+  } catch (error) {
+    console.error("Ошибка планирования сообщения:", error);
+  }
+}
+// ----------------------------------------------------
+// 5. Удалить отложенное сообщение
+// ----------------------------------------------------
+async function deleteScheduledTask(taskId) {
+  try {
+    const response = await fetch(`${BOT_API_URL}/api/tasks/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_id: taskId })
+    });
+    const result = await response.json();
+    if (result.status === "success") {
+      console.log("Задача удалена!");
+    }
+  } catch (error) {
+    console.error("Ошибка удаления задачи:", error);
+  }
+}
