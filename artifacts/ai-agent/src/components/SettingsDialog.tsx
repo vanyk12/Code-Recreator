@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle, Bot, RefreshCw, Check } from "lucide-react";
+import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle } from "lucide-react";
 
 interface Settings {
   openrouterKey: string;
