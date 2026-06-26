@@ -1,6 +1,10 @@
 import { Router } from "express";
 import fs from "fs/promises";
 import path from "path";
+import { createRequire } from "node:module";
+// archiver is CJS-only — must load via require in ESM context
+const _require = createRequire(import.meta.url);
+const archiver = _require("archiver") as typeof import("archiver");
 
 const router = Router();
 
@@ -206,6 +210,73 @@ router.post("/files/delete", async (req, res) => {
   } catch (err: unknown) {
     req.log.error(err);
     res.status(500).json({ success: false, message: err instanceof Error ? err.message : "Failed to delete" });
+  }
+});
+
+/* ─── GET /workspace-zip/:chatId ────────────────────────────────────────────
+   Streams a ZIP archive of the chat workspace.
+   Auth: ?secret=BOT_API_SECRET (set this env var on Replit)
+   Used by the Telegram bot: bot calls this URL → gets ZIP bytes → sendDocument
+─────────────────────────────────────────────────────────────────────────── */
+router.get("/workspace-zip/:chatId", async (req, res) => {
+  try {
+    // --- Auth ---
+    const secret = process.env.BOT_API_SECRET;
+    if (secret && req.query.secret !== secret) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const chatId = parseInt(req.params.chatId as string);
+    if (isNaN(chatId)) { res.status(400).json({ error: "Invalid chat ID" }); return; }
+
+    const chatRoot = path.join(WORKSPACE_ROOT, "chat-workspaces", `chat-${chatId}`);
+
+    // Check workspace exists and is not empty
+    try { await fs.access(chatRoot); } catch {
+      res.status(404).json({ error: `Workspace for chat ${chatId} not found` });
+      return;
+    }
+
+    const SKIP = new Set(["node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build", ".next"]);
+
+    // Stream ZIP directly to response
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="synapse-chat-${chatId}.zip"`);
+    res.setHeader("Cache-Control", "no-store");
+
+    const archive = archiver("zip", { zlib: { level: 6 } });
+
+    archive.on("error", (err) => {
+      req.log.error(err, "archiver error");
+      if (!res.headersSent) res.status(500).json({ error: "ZIP creation failed" });
+    });
+
+    archive.pipe(res);
+
+    // Walk workspace and add files, skipping heavy dirs
+    async function addDir(dir: string, zipBase: string) {
+      let entries: import("fs").Dirent[];
+      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        if (SKIP.has(entry.name)) continue;
+        const fullPath = path.join(dir, entry.name);
+        const zipPath = zipBase ? `${zipBase}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          await addDir(fullPath, zipPath);
+        } else {
+          archive.file(fullPath, { name: zipPath });
+        }
+      }
+    }
+
+    await addDir(chatRoot, "");
+    await archive.finalize();
+
+    req.log.info({ chatId, bytes: archive.pointer() }, "Workspace ZIP sent");
+  } catch (err: unknown) {
+    req.log.error(err);
+    if (!res.headersSent) res.status(500).json({ error: "Internal error" });
   }
 });
 
