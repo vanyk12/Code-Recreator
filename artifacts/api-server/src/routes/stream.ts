@@ -51,7 +51,12 @@ Use XML tags (self-closing or with content) to invoke tools:
 ### Web & Research  
 - \`<web_search query="your search query" />\` — search the internet
 - \`<fetch_url url="https://example.com" />\` — fetch webpage content
-- \`<analyze_telegram_bot username="@botname" />\` — analyze a Telegram bot by username: fetch its public profile, commands, description, and generate a clone plan
+- \`<analyze_telegram_bot username="@botname" />\` — deeply analyze a Telegram bot: fetch public profile, description, web mentions, bot directories. **CRITICAL BEHAVIOR**: After the tool returns data, you MUST do the following:
+  1. Show a brief summary of what you found
+  2. **Ask the user to send screenshots** of the bot's menus, buttons, and conversation (e.g. "Пожалуйста, скинь скриншоты всех экранов бота — главное меню, каталог, кнопки и т.д. Чем больше скриншотов, тем точнее клон")
+  3. **Wait for the user to provide screenshots**, then analyze each screenshot carefully: identify EVERY button label, menu item, message text, inline keyboard layout, and navigation flow
+  4. Only AFTER seeing screenshots — write the complete clone code with exact button names, exact menu structure, exact data types
+  5. If the user cannot provide screenshots — ask them to describe ALL menus and buttons in detail before coding
 
 ### Git & GitHub
 - \`<git_commit_and_push branch="main" message="feat: add feature" repo="owner/repo" />\` — commit and push
@@ -171,7 +176,7 @@ async function analyzeTelegramBot(username: string): Promise<string> {
   const clean = username.replace(/^@/, "").trim();
   const parts: string[] = [];
 
-  // 1. Telegram Bot API getChat (works if bot has been seen by our bot, or it's a public bot)
+  // 1. Telegram Bot API — getChat
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (botToken) {
     try {
@@ -190,32 +195,84 @@ async function analyzeTelegramBot(username: string): Promise<string> {
       };
       if (apiData.ok && apiData.result) {
         const r = apiData.result;
-        parts.push(`## 📋 Telegram API info (@${clean})\n- ID: ${r.id}\n- Имя: ${r.first_name || ""}${r.last_name ? " " + r.last_name : ""}\n- Тип: ${r.type || "bot"}${r.description ? `\n- Описание: ${r.description}` : ""}${r.bio ? `\n- Bio: ${r.bio}` : ""}`);
+        parts.push(
+          `## 📋 Telegram API (@${clean})\n` +
+          `- ID: ${r.id}\n` +
+          `- Имя: ${r.first_name || ""}${r.last_name ? " " + r.last_name : ""}\n` +
+          `- Тип: ${r.type || "bot"}` +
+          (r.description ? `\n- Описание: ${r.description}` : "") +
+          (r.bio ? `\n- Bio: ${r.bio}` : "")
+        );
       } else {
-        parts.push(`## 📋 Telegram API info (@${clean})\nНе удалось получить данные через API: ${apiData.description || "бот не найден или нет доступа"}`);
+        parts.push(`## 📋 Telegram API (@${clean})\n${apiData.description || "бот не найден или закрыт"}`);
       }
     } catch (e) {
-      parts.push(`## 📋 Telegram API\n⚠️ Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+      parts.push(`## 📋 Telegram API\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
     }
   } else {
-    parts.push(`## 📋 Telegram API\nTELEGRAM_BOT_TOKEN не задан — пропускаю прямой API-запрос`);
+    parts.push(`## 📋 Telegram API\nTELEGRAM_BOT_TOKEN не задан`);
   }
 
-  // 2. Public t.me page
+  // 2. Public t.me page — scrape description and preview text
   try {
-    const tmePage = await fetchUrlContent(`https://t.me/${clean}`);
-    parts.push(`## 🌐 Публичная страница t.me/@${clean}\n\`\`\`\n${tmePage.slice(0, 3000)}\n\`\`\``);
+    const raw = await fetchUrlContent(`https://t.me/${clean}`);
+    // Extract only meaningful text (skip HTML boilerplate)
+    const stripped = raw
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s{2,}/g, "\n")
+      .trim()
+      .slice(0, 2000);
+    parts.push(`## 🌐 Страница t.me/@${clean}\n${stripped}`);
   } catch (e) {
     parts.push(`## 🌐 t.me page\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // 3. Web search for info about the bot
-  try {
-    const searchResult = await performWebSearch(`Telegram bot @${clean} функционал команды`);
-    parts.push(`## 🔍 Поиск по боту @${clean}\n${searchResult}`);
-  } catch (e) {
-    parts.push(`## 🔍 Поиск\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
-  }
+  // 3. Parallel targeted web searches
+  const searches = [
+    `"@${clean}" telegram бот меню кнопки команды функционал`,
+    `"@${clean}" telegram bot обзор как работает`,
+    `site:tlgrm.ru OR site:telega.in OR site:tgstat.ru "@${clean}"`,
+  ];
+  const searchResults = await Promise.allSettled(searches.map(q => performWebSearch(q)));
+  searchResults.forEach((res, i) => {
+    if (res.status === "fulfilled") {
+      parts.push(`## 🔍 Поиск ${i + 1}: ${searches[i]}\n${res.value.slice(0, 1500)}`);
+    }
+  });
+
+  // 4. Try bot directories
+  const directoryUrls = [
+    `https://tlgrm.ru/bots/${clean}`,
+    `https://tgstat.ru/bot/@${clean}`,
+  ];
+  const dirResults = await Promise.allSettled(directoryUrls.map(u => fetchUrlContent(u)));
+  dirResults.forEach((res, i) => {
+    if (res.status === "fulfilled") {
+      const stripped = res.value
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s{2,}/g, "\n")
+        .trim()
+        .slice(0, 1500);
+      if (stripped.length > 100) {
+        parts.push(`## 📚 Каталог: ${directoryUrls[i]}\n${stripped}`);
+      }
+    }
+  });
+
+  parts.push(
+    `## ⚠️ ВАЖНО ДЛЯ КЛОНИРОВАНИЯ\n` +
+    `Публичные источники дают только общее описание бота. Без скриншотов реального интерфейса клон будет приблизительным.\n` +
+    `**Необходимые данные для точного клона:**\n` +
+    `- Скриншоты КАЖДОГО экрана/меню бота\n` +
+    `- Точные тексты всех кнопок (inline keyboard)\n` +
+    `- Команды (/start, /help, и т.д.)\n` +
+    `- Описание логики (что происходит при нажатии каждой кнопки)\n` +
+    `- Какие данные бот хранит (товары, пользователи, заказы и т.д.)`
+  );
 
   return parts.join("\n\n---\n\n");
 }
