@@ -53,7 +53,8 @@ Use XML tags (self-closing or with content) to invoke tools:
 - \`<fetch_url url="https://example.com" />\` — fetch webpage content
 - \`<analyze_telegram_bot username="@botname" />\` — fetch public info about the bot (description, web mentions, bot directories). After this tool, always offer the user to use \`crawl_telegram_bot\` with a session string for a deep automatic crawl, OR ask them to share screenshots.
 - \`<crawl_telegram_bot username="@botname" session="SESSION_STRING" />\` — **deep automatic crawl** of the bot using a real Telegram user session. Connects as a real user, sends /start, automatically walks through ALL inline keyboard menus (up to 3 levels deep), records every button label, message text, and navigation flow. Returns a complete menu tree ready for cloning.
-  **CRITICAL**: NEVER ask the user for phone number or code inside the chat. Only use session string (pre-generated). If the user doesn't have a session string, tell them: "Тебе нужен Telegram session string. Получить его можно так: 1) Зайди на my.telegram.org → API development tools → создай приложение → скопируй API ID и API Hash. 2) Напиши мне: 'создай скрипт для получения session string' — я создам готовый Python-скрипт который нужно запустить один раз."
+- \`<telegram_auth_start phone="+7XXXXXXXXXX" />\` — start Telegram login: sends a code to the user's phone/Telegram app. Must ask the user for their phone number first. Before calling this, ALWAYS warn: "Ты можешь отменить авторизацию в любой момент, просто напиши 'отмена'."
+- \`<telegram_auth_complete phone="+7XXXXXXXXXX" code="XXXXX" />\` — complete Telegram login with the received code. Returns session string on success. If the user says "отмена" / "cancel" / "отказаться" at any point in the auth flow — immediately stop without calling any tools and reply: "Авторизация отменена. Ничего не сохранено."
 
 ### Git & GitHub
 - \`<git_commit_and_push branch="main" message="feat: add feature" repo="owner/repo" />\` — commit and push
@@ -272,6 +273,105 @@ async function analyzeTelegramBot(username: string): Promise<string> {
   );
 
   return parts.join("\n\n---\n\n");
+}
+
+/* ── Telegram auth state store ───────────────────────────────────────── */
+const pendingTgAuths = new Map<string, {
+  client: any;
+  phoneCodeHash: string;
+  expiresAt: number;
+}>();
+
+// Cleanup expired auth sessions every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of pendingTgAuths.entries()) {
+    if (val.expiresAt < now) {
+      try { val.client.disconnect(); } catch {}
+      pendingTgAuths.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+async function telegramAuthStart(phone: string): Promise<string> {
+  const apiId = parseInt(process.env.TELEGRAM_API_ID || "0");
+  const apiHash = process.env.TELEGRAM_API_HASH || "";
+  if (!apiId || !apiHash) {
+    return (
+      "⚠️ Необходимо задать TELEGRAM_API_ID и TELEGRAM_API_HASH.\n\n" +
+      "Получить: https://my.telegram.org → API development tools → создай приложение."
+    );
+  }
+
+  const tgMod = await import("telegram") as any;
+  const { TelegramClient } = tgMod;
+  const sessMod = await import("telegram/sessions/index.js") as any;
+  const { StringSession } = sessMod;
+
+  // Cleanup any previous pending auth for this phone
+  const existing = pendingTgAuths.get(phone);
+  if (existing) { try { existing.client.disconnect(); } catch {} }
+
+  const client = new TelegramClient(new StringSession(""), apiId, apiHash, {
+    connectionRetries: 2,
+    requestRetries: 2,
+    autoReconnect: false,
+  });
+  await client.connect();
+
+  const result = await client.sendCode({ apiId, apiHash }, phone);
+  const phoneCodeHash = (result as any).phoneCodeHash as string;
+
+  pendingTgAuths.set(phone, {
+    client,
+    phoneCodeHash,
+    expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes TTL
+  });
+
+  return (
+    `✅ Код отправлен на ${phone} (в Telegram-приложение или SMS).\n\n` +
+    `Введи код в следующем сообщении.\n` +
+    `Чтобы отменить — напиши "отмена".`
+  );
+}
+
+async function telegramAuthComplete(phone: string, code: string): Promise<string> {
+  const pending = pendingTgAuths.get(phone);
+  if (!pending) {
+    return "⚠️ Сессия авторизации не найдена или истекла (10 мин). Начни заново.";
+  }
+  const { client, phoneCodeHash } = pending;
+  const tgMod = await import("telegram") as any;
+  const { Api } = tgMod;
+
+  try {
+    await client.invoke(new Api.auth.SignIn({
+      phoneNumber: phone,
+      phoneCodeHash,
+      phoneCode: code.trim().replace(/\s/g, ""),
+    }));
+
+    const sessionString = (client.session as any).save() as string;
+    pendingTgAuths.delete(phone);
+    try { await client.disconnect(); } catch {}
+
+    return (
+      `✅ Авторизация успешна!\n\n` +
+      `**Session String** (сохрани — он многоразовый, больше не надо вводить код):\n` +
+      `\`\`\`\n${sessionString}\n\`\`\`\n\n` +
+      `Теперь используй его для \`crawl_telegram_bot\`.`
+    );
+  } catch (e: any) {
+    if (e.message?.includes("SESSION_PASSWORD_NEEDED") || e.code === 401) {
+      return (
+        "🔐 У тебя включена двухфакторная аутентификация (2FA).\n\n" +
+        "Введи пароль 2FA в следующем сообщении, а я вызову завершение с ним."
+      );
+    }
+    pendingTgAuths.delete(phone);
+    try { await client.disconnect(); } catch {}
+    return `⚠️ Ошибка входа: ${e.message || String(e)}`;
+  }
 }
 
 /* ── crawl_telegram_bot ──────────────────────────────────────────────── */
@@ -857,6 +957,34 @@ async function executeTools(
         resultParts.push(`### 🤖 analyze_telegram_bot("${username}")\n${botInfo}`);
       } catch (e) {
         resultParts.push(`### 🤖 analyze_telegram_bot("${username}")\n⚠️ Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // telegram_auth_start
+  const tgAuthStartMatches = [...fullContent.matchAll(/<telegram_auth_start\s+phone="([^"]+)"\s*\/>/g)];
+  if (tgAuthStartMatches.length) {
+    statusMessages.push("Отправляю код авторизации Telegram...");
+    for (const m of tgAuthStartMatches) {
+      try {
+        const res = await telegramAuthStart(m[1]);
+        resultParts.push(`### 📱 telegram_auth_start("${m[1]}")\n${res}`);
+      } catch (e) {
+        resultParts.push(`### 📱 telegram_auth_start\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // telegram_auth_complete
+  const tgAuthCompleteMatches = [...fullContent.matchAll(/<telegram_auth_complete\s+phone="([^"]+)"\s+code="([^"]+)"\s*\/>/g)];
+  if (tgAuthCompleteMatches.length) {
+    statusMessages.push("Завершаю авторизацию Telegram...");
+    for (const m of tgAuthCompleteMatches) {
+      try {
+        const res = await telegramAuthComplete(m[1], m[2]);
+        resultParts.push(`### 🔐 telegram_auth_complete\n${res}`);
+      } catch (e) {
+        resultParts.push(`### 🔐 telegram_auth_complete\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }

@@ -221,7 +221,8 @@ type ToolKind =
   | "git_commit_and_push" | "create_pull_request"
   | "run_tests" | "diff_file" | "lint_file" | "install_package"
   | "check_dependencies" | "audit_dependencies" | "check_port"
-  | "analyze_telegram_bot" | "crawl_telegram_bot";
+  | "analyze_telegram_bot" | "crawl_telegram_bot"
+  | "telegram_auth_start" | "telegram_auth_complete";
 
 const TOOL_META: Record<ToolKind, { icon: React.ElementType; label: string; color: string; border: string; textColor: string }> = {
   list_files:           { icon: FolderOpen,   label: "list_files",           color: "rgba(250,173,20,0.08)",  border: "rgba(250,173,20,0.2)",  textColor: "rgba(253,213,119,0.9)" },
@@ -243,6 +244,8 @@ const TOOL_META: Record<ToolKind, { icon: React.ElementType; label: string; colo
   check_port:           { icon: Plug,          label: "check_port",           color: "rgba(14,165,233,0.08)",  border: "rgba(14,165,233,0.2)",  textColor: "rgba(125,211,252,0.9)" },
   analyze_telegram_bot: { icon: MessageCircle,  label: "analyze_telegram_bot", color: "rgba(14,182,246,0.08)",  border: "rgba(14,182,246,0.2)",  textColor: "rgba(125,211,252,0.9)" },
   crawl_telegram_bot:   { icon: MessageCircle,  label: "crawl_telegram_bot",   color: "rgba(99,102,241,0.08)",  border: "rgba(99,102,241,0.2)",  textColor: "rgba(165,180,252,0.9)" },
+  telegram_auth_start:    { icon: Plug,          label: "telegram_auth_start",   color: "rgba(34,197,94,0.08)",   border: "rgba(34,197,94,0.2)",   textColor: "rgba(134,239,172,0.9)" },
+  telegram_auth_complete: { icon: CheckCircle2,  label: "telegram_auth_complete",color: "rgba(34,197,94,0.08)",   border: "rgba(34,197,94,0.2)",   textColor: "rgba(134,239,172,0.9)" },
 };
 
 function ToolCallBadge({ kind, content }: { kind: ToolKind; content: string }) {
@@ -302,6 +305,14 @@ function parseContent(content: string, isStreaming = false): ContentPart[] {
   });
   remaining = remaining.replace(/<crawl_telegram_bot\s+username="([^"]+)"\s+session="[^"]*"\s*\/>/g, (_, u) => {
     actions.push({ type: "toolcall", content: u, toolKind: "crawl_telegram_bot" });
+    return `\n__ACT_${actions.length - 1}__\n`;
+  });
+  remaining = remaining.replace(/<telegram_auth_start\s+phone="([^"]+)"\s*\/>/g, (_, p) => {
+    actions.push({ type: "toolcall", content: p, toolKind: "telegram_auth_start" });
+    return `\n__ACT_${actions.length - 1}__\n`;
+  });
+  remaining = remaining.replace(/<telegram_auth_complete\s+phone="([^"]+)"\s+code="([^"]+)"\s*\/>/g, (_, p, c) => {
+    actions.push({ type: "toolcall", content: `${p} code:${c}`, toolKind: "telegram_auth_complete" });
     return `\n__ACT_${actions.length - 1}__\n`;
   });
   remaining = remaining.replace(/<view_outline\s+path="([^"]+)"\s*\/>/g, (_, p) => {
