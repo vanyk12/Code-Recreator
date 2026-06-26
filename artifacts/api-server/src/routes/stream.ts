@@ -503,14 +503,29 @@ async function crawlTelegramBot(username: string, sessionString: string): Promis
             const beforeMsgs2 = await client.getMessages(entity, { limit: 1 }) as any[];
             const beforeId = (beforeMsgs2[0]?.id || 0) as number;
 
+            // WebApp / Mini App buttons
+            const isWebView = btn.className === "KeyboardButtonWebView" ||
+                              btn.className === "KeyboardButtonSimpleWebView" ||
+                              btn.className === "KeyboardButtonUserProfile" ||
+                              (btn.url && (btn.url.includes("t.me") || btn.url.startsWith("https://")) && btn.className !== "KeyboardButtonUrl");
+
             if (btn.className === "KeyboardButtonCallback" && btn.data) {
               await client.invoke(new Api.messages.GetBotCallbackAnswer({
                 peer: entity,
                 msgId: msg.id,
                 data: btn.data,
               }));
+            } else if (isWebView || btn.className?.includes("WebView")) {
+              // Mini App / WebApp button — record URL for agent analysis
+              results.push(
+                `### ${pathLabel} → [${btnText}]\n` +
+                `**Тип:** 🌐 MINI APP (WebApp)\n` +
+                `**URL мини-аппа:** ${btn.url || "(URL не доступен через MTProto)"}\n` +
+                `**Важно для клонирования:** это Telegram Mini App — нужно создать отдельное веб-приложение (HTML/JS/CSS) с Telegram WebApp SDK`
+              );
+              continue;
             } else if (btn.className === "KeyboardButtonUrl") {
-              results.push(`### ${pathLabel} → [${btnText}]\n**Тип:** URL-кнопка (${btn.url || ""})`);
+              results.push(`### ${pathLabel} → [${btnText}]\n**Тип:** 🔗 URL-кнопка\n**URL:** ${btn.url || ""}`);
               continue;
             } else {
               await client.sendMessage(entity, { message: btnText });
