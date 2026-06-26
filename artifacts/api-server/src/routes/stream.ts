@@ -51,6 +51,7 @@ Use XML tags (self-closing or with content) to invoke tools:
 ### Web & Research  
 - \`<web_search query="your search query" />\` — search the internet
 - \`<fetch_url url="https://example.com" />\` — fetch webpage content
+- \`<analyze_telegram_bot username="@botname" />\` — analyze a Telegram bot by username: fetch its public profile, commands, description, and generate a clone plan
 
 ### Git & GitHub
 - \`<git_commit_and_push branch="main" message="feat: add feature" repo="owner/repo" />\` — commit and push
@@ -163,6 +164,60 @@ async function fetchUrlContent(url: string): Promise<string> {
     .replace(/\s{2,}/g, " ")
     .trim();
   return text.slice(0, 8000) + (text.length > 8000 ? "\n...[обрезано]" : "");
+}
+
+/* ── analyze_telegram_bot ────────────────────────────────────────────── */
+async function analyzeTelegramBot(username: string): Promise<string> {
+  const clean = username.replace(/^@/, "").trim();
+  const parts: string[] = [];
+
+  // 1. Telegram Bot API getChat (works if bot has been seen by our bot, or it's a public bot)
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (botToken) {
+    try {
+      const apiRes = await fetch(
+        `https://api.telegram.org/bot${botToken}/getChat?chat_id=@${clean}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      const apiData = await apiRes.json() as {
+        ok: boolean;
+        result?: {
+          id?: number; first_name?: string; last_name?: string;
+          username?: string; description?: string; bio?: string;
+          type?: string;
+        };
+        description?: string;
+      };
+      if (apiData.ok && apiData.result) {
+        const r = apiData.result;
+        parts.push(`## 📋 Telegram API info (@${clean})\n- ID: ${r.id}\n- Имя: ${r.first_name || ""}${r.last_name ? " " + r.last_name : ""}\n- Тип: ${r.type || "bot"}${r.description ? `\n- Описание: ${r.description}` : ""}${r.bio ? `\n- Bio: ${r.bio}` : ""}`);
+      } else {
+        parts.push(`## 📋 Telegram API info (@${clean})\nНе удалось получить данные через API: ${apiData.description || "бот не найден или нет доступа"}`);
+      }
+    } catch (e) {
+      parts.push(`## 📋 Telegram API\n⚠️ Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } else {
+    parts.push(`## 📋 Telegram API\nTELEGRAM_BOT_TOKEN не задан — пропускаю прямой API-запрос`);
+  }
+
+  // 2. Public t.me page
+  try {
+    const tmePage = await fetchUrlContent(`https://t.me/${clean}`);
+    parts.push(`## 🌐 Публичная страница t.me/@${clean}\n\`\`\`\n${tmePage.slice(0, 3000)}\n\`\`\``);
+  } catch (e) {
+    parts.push(`## 🌐 t.me page\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 3. Web search for info about the bot
+  try {
+    const searchResult = await performWebSearch(`Telegram bot @${clean} функционал команды`);
+    parts.push(`## 🔍 Поиск по боту @${clean}\n${searchResult}`);
+  } catch (e) {
+    parts.push(`## 🔍 Поиск\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  return parts.join("\n\n---\n\n");
 }
 
 /* ── view_outline: extract symbols from a file ──────────────────────── */
@@ -615,6 +670,21 @@ async function executeTools(
         resultParts.push(`### 🌐 fetch_url("${url}")\n\`\`\`\n${pageContent}\n\`\`\``);
       } catch (e) {
         resultParts.push(`### 🌐 fetch_url("${url}")\n⚠️ Ошибка загрузки: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // analyze_telegram_bot
+  const tgBotMatches = [...fullContent.matchAll(/<analyze_telegram_bot\s+username="([^"]+)"\s*\/>/g)];
+  if (tgBotMatches.length) {
+    statusMessages.push("Анализирую Telegram-бота...");
+    for (const m of tgBotMatches) {
+      const username = m[1];
+      try {
+        const botInfo = await analyzeTelegramBot(username);
+        resultParts.push(`### 🤖 analyze_telegram_bot("${username}")\n${botInfo}`);
+      } catch (e) {
+        resultParts.push(`### 🤖 analyze_telegram_bot("${username}")\n⚠️ Ошибка: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }

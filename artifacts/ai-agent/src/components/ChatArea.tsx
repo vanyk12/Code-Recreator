@@ -14,7 +14,7 @@ import {
   FileCode, Terminal, Play, CheckCircle2, X,
   FolderOpen, Search, Globe, File, TestTube2,
   GitCompare, Package, Shield, Plug, Mic, MicOff,
-  FileText, ExternalLink, FlaskConical, Eye
+  FileText, ExternalLink, FlaskConical, Eye, MessageCircle
 } from "lucide-react";
 
 /* ─────────────── Octopus animation ─────────────── */
@@ -220,7 +220,8 @@ type ToolKind =
   | "view_outline" | "grep_search" | "manage_env_vars" | "scan_secrets"
   | "git_commit_and_push" | "create_pull_request"
   | "run_tests" | "diff_file" | "lint_file" | "install_package"
-  | "check_dependencies" | "audit_dependencies" | "check_port";
+  | "check_dependencies" | "audit_dependencies" | "check_port"
+  | "analyze_telegram_bot";
 
 const TOOL_META: Record<ToolKind, { icon: React.ElementType; label: string; color: string; border: string; textColor: string }> = {
   list_files:           { icon: FolderOpen,   label: "list_files",           color: "rgba(250,173,20,0.08)",  border: "rgba(250,173,20,0.2)",  textColor: "rgba(253,213,119,0.9)" },
@@ -240,6 +241,7 @@ const TOOL_META: Record<ToolKind, { icon: React.ElementType; label: string; colo
   check_dependencies:   { icon: Package,       label: "check_dependencies",   color: "rgba(245,158,11,0.08)",  border: "rgba(245,158,11,0.2)",  textColor: "rgba(252,211,77,0.9)"  },
   audit_dependencies:   { icon: Shield,        label: "audit_dependencies",   color: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.2)",   textColor: "rgba(252,165,165,0.9)" },
   check_port:           { icon: Plug,          label: "check_port",           color: "rgba(14,165,233,0.08)",  border: "rgba(14,165,233,0.2)",  textColor: "rgba(125,211,252,0.9)" },
+  analyze_telegram_bot: { icon: MessageCircle,  label: "analyze_telegram_bot", color: "rgba(14,182,246,0.08)",  border: "rgba(14,182,246,0.2)",  textColor: "rgba(125,211,252,0.9)" },
 };
 
 function ToolCallBadge({ kind, content }: { kind: ToolKind; content: string }) {
@@ -291,6 +293,10 @@ function parseContent(content: string, isStreaming = false): ContentPart[] {
   });
   remaining = remaining.replace(/<fetch_url\s+url="([^"]+)"\s*\/>/g, (_, u) => {
     actions.push({ type: "toolcall", content: u, toolKind: "fetch_url" });
+    return `\n__ACT_${actions.length - 1}__\n`;
+  });
+  remaining = remaining.replace(/<analyze_telegram_bot\s+username="([^"]+)"\s*\/>/g, (_, u) => {
+    actions.push({ type: "toolcall", content: u, toolKind: "analyze_telegram_bot" });
     return `\n__ACT_${actions.length - 1}__\n`;
   });
   remaining = remaining.replace(/<view_outline\s+path="([^"]+)"\s*\/>/g, (_, p) => {
