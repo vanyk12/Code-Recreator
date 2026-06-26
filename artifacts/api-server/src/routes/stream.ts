@@ -51,12 +51,9 @@ Use XML tags (self-closing or with content) to invoke tools:
 ### Web & Research  
 - \`<web_search query="your search query" />\` — search the internet
 - \`<fetch_url url="https://example.com" />\` — fetch webpage content
-- \`<analyze_telegram_bot username="@botname" />\` — deeply analyze a Telegram bot: fetch public profile, description, web mentions, bot directories. **CRITICAL BEHAVIOR**: After the tool returns data, you MUST do the following:
-  1. Show a brief summary of what you found
-  2. **Ask the user to send screenshots** of the bot's menus, buttons, and conversation (e.g. "Пожалуйста, скинь скриншоты всех экранов бота — главное меню, каталог, кнопки и т.д. Чем больше скриншотов, тем точнее клон")
-  3. **Wait for the user to provide screenshots**, then analyze each screenshot carefully: identify EVERY button label, menu item, message text, inline keyboard layout, and navigation flow
-  4. Only AFTER seeing screenshots — write the complete clone code with exact button names, exact menu structure, exact data types
-  5. If the user cannot provide screenshots — ask them to describe ALL menus and buttons in detail before coding
+- \`<analyze_telegram_bot username="@botname" />\` — fetch public info about the bot (description, web mentions, bot directories). After this tool, always offer the user to use \`crawl_telegram_bot\` with a session string for a deep automatic crawl, OR ask them to share screenshots.
+- \`<crawl_telegram_bot username="@botname" session="SESSION_STRING" />\` — **deep automatic crawl** of the bot using a real Telegram user session. Connects as a real user, sends /start, automatically walks through ALL inline keyboard menus (up to 3 levels deep), records every button label, message text, and navigation flow. Returns a complete menu tree ready for cloning.
+  **CRITICAL**: NEVER ask the user for phone number or code inside the chat. Only use session string (pre-generated). If the user doesn't have a session string, tell them: "Тебе нужен Telegram session string. Получить его можно так: 1) Зайди на my.telegram.org → API development tools → создай приложение → скопируй API ID и API Hash. 2) Напиши мне: 'создай скрипт для получения session string' — я создам готовый Python-скрипт который нужно запустить один раз."
 
 ### Git & GitHub
 - \`<git_commit_and_push branch="main" message="feat: add feature" repo="owner/repo" />\` — commit and push
@@ -275,6 +272,124 @@ async function analyzeTelegramBot(username: string): Promise<string> {
   );
 
   return parts.join("\n\n---\n\n");
+}
+
+/* ── crawl_telegram_bot ──────────────────────────────────────────────── */
+async function crawlTelegramBot(username: string, sessionString: string): Promise<string> {
+  const apiId = parseInt(process.env.TELEGRAM_API_ID || "0");
+  const apiHash = process.env.TELEGRAM_API_HASH || "";
+
+  if (!apiId || !apiHash) {
+    return (
+      "⚠️ Переменные окружения не заданы.\n\n" +
+      "Необходимо установить:\n" +
+      "- `TELEGRAM_API_ID` — числовой ID приложения\n" +
+      "- `TELEGRAM_API_HASH` — хэш приложения\n\n" +
+      "Получить их можно на https://my.telegram.org → API development tools"
+    );
+  }
+  if (!sessionString || sessionString.trim().length < 10) {
+    return "⚠️ Session string не передан или слишком короткий.";
+  }
+
+  // Dynamic import to avoid esbuild bundling issues
+  const tgMod = await import("telegram") as any;
+  const { TelegramClient, Api } = tgMod;
+  const sessMod = await import("telegram/sessions/index.js") as any;
+  const { StringSession } = sessMod;
+
+  const session = new StringSession(sessionString.trim());
+  const client = new TelegramClient(session, apiId, apiHash, {
+    connectionRetries: 2,
+    requestRetries: 2,
+    autoReconnect: false,
+  });
+
+  try {
+    await client.connect();
+    const clean = username.replace(/^@/, "");
+    const entity = await client.getEntity(clean);
+
+    const results: string[] = [];
+    const visited = new Set<string>();
+
+    // Wait for bot response after action
+    async function waitForBotMsg(lastId: number): Promise<any> {
+      await new Promise(r => setTimeout(r, 2000));
+      const msgs = await client.getMessages(entity, { limit: 5 });
+      const botMsgs = (msgs as any[]).filter(
+        (m: any) => !m.out && (m.id > lastId || lastId === 0)
+      );
+      return botMsgs[0] || null;
+    }
+
+    function describeMsg(msg: any, label: string): string {
+      const text = (msg?.message || "(нет текста)").slice(0, 300);
+      const rows = msg?.replyMarkup?.rows || [];
+      const btnLines = (rows as any[]).map((row: any) =>
+        (row.buttons as any[]).map((b: any) => `[${b.text || "?"}]`).join(" ")
+      );
+      return `### ${label}\n**Текст:** ${text}\n**Кнопки:** ${btnLines.join(" / ") || "(нет)"}`;
+    }
+
+    // Send /start and record response
+    const preStartMsgs = await client.getMessages(entity, { limit: 1 }) as any[];
+    const lastId = preStartMsgs[0]?.id || 0;
+    await client.sendMessage(entity, { message: "/start" });
+    const startMsg = await waitForBotMsg(lastId);
+    if (!startMsg) {
+      return "⚠️ Бот не ответил на /start в течение 2 секунд";
+    }
+    results.push(describeMsg(startMsg, "/start (главное меню)"));
+
+    // Recursively click inline buttons
+    async function crawlMsg(msg: any, depth: number, pathLabel: string) {
+      if (depth > 2 || !msg?.replyMarkup?.rows) return;
+      const rows: any[] = msg.replyMarkup.rows || [];
+
+      for (const row of rows) {
+        for (const btn of (row.buttons || []) as any[]) {
+          const btnText: string = btn.text || "?";
+          const key = `${pathLabel}::${btnText}`;
+          if (visited.has(key)) continue;
+          visited.add(key);
+
+          try {
+            const beforeMsgs = await client.getMessages(entity, { limit: 1 }) as any[];
+            const beforeId = beforeMsgs[0]?.id || 0;
+
+            if (btn.className === "KeyboardButtonCallback" && btn.data) {
+              await client.invoke(new Api.messages.GetBotCallbackAnswer({
+                peer: entity,
+                msgId: msg.id,
+                data: btn.data,
+              }));
+            } else {
+              await client.sendMessage(entity, { message: btnText });
+            }
+
+            const resp = await waitForBotMsg(beforeId);
+            if (resp && resp.id !== msg.id) {
+              results.push(describeMsg(resp, `${pathLabel} → [${btnText}]`));
+              await crawlMsg(resp, depth + 1, `${pathLabel} → [${btnText}]`);
+            }
+          } catch (e) {
+            results.push(`⚠️ Кнопка [${btnText}]: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      }
+    }
+
+    await crawlMsg(startMsg, 0, "/start");
+
+    return (
+      `# 🕷️ Полная карта меню @${clean}\n\n` +
+      `> Автоматически обойдено ${visited.size} кнопок, 3 уровня глубины\n\n` +
+      results.join("\n\n---\n\n")
+    );
+  } finally {
+    try { await client.disconnect(); } catch {}
+  }
 }
 
 /* ── view_outline: extract symbols from a file ──────────────────────── */
@@ -742,6 +857,22 @@ async function executeTools(
         resultParts.push(`### 🤖 analyze_telegram_bot("${username}")\n${botInfo}`);
       } catch (e) {
         resultParts.push(`### 🤖 analyze_telegram_bot("${username}")\n⚠️ Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // crawl_telegram_bot
+  const crawlBotMatches = [...fullContent.matchAll(/<crawl_telegram_bot\s+username="([^"]+)"\s+session="([^"]+)"\s*\/>/g)];
+  if (crawlBotMatches.length) {
+    statusMessages.push("Подключаюсь к Telegram и обхожу меню бота...");
+    for (const m of crawlBotMatches) {
+      const username = m[1];
+      const session = m[2];
+      try {
+        const crawlResult = await crawlTelegramBot(username, session);
+        resultParts.push(`### 🕷️ crawl_telegram_bot("${username}")\n${crawlResult}`);
+      } catch (e) {
+        resultParts.push(`### 🕷️ crawl_telegram_bot("${username}")\n⚠️ Ошибка: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }
