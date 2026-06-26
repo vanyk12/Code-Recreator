@@ -59,6 +59,14 @@ Use XML tags (self-closing or with content) to invoke tools:
 ### Git & GitHub
 - \`<git_commit_and_push branch="main" message="feat: add feature" repo="owner/repo" />\` — commit and push
 - \`<create_pull_request title="PR Title" body="Description" head="feature-branch" base="main" repo="owner/repo" />\` — create GitHub PR
+- \`<create_github_repo name="my-bot" description="..." private="false" />\` — **create a new GitHub repository** via API (does NOT require repo to exist first). Returns the repo full name (owner/name) to use with git_commit_and_push.
+
+### 🚀 Deploy to Railway
+- \`<deploy_to_railway project_name="my-bot" repo="owner/repo" />\` — **full auto-deploy to Railway**: creates a Railway project, connects the GitHub repo, triggers deployment. Returns live URL.
+- Full deployment flow (always do in this order):
+  1. \`<create_github_repo name="...">\` → get owner/repo
+  2. \`<git_commit_and_push repo="owner/repo" branch="main" message="...">\` → push code
+  3. \`<deploy_to_railway project_name="..." repo="owner/repo">\` → live on Railway
 
 ### System
 - \`<check_port number="3000" />\` — check if port is in use
@@ -803,6 +811,118 @@ async function createPullRequest(
   return `✅ Pull Request #${pr.number} создан!\n🔗 ${pr.html_url}`;
 }
 
+/* ── create_github_repo ──────────────────────────────────────────────── */
+async function createGithubRepo(
+  name: string, description: string, isPrivate: boolean, token: string
+): Promise<string> {
+  const resp = await fetch("https://api.github.com/user/repos", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name,
+      description,
+      private: isPrivate,
+      auto_init: false,
+    }),
+  });
+  if (resp.status === 422) {
+    // Repo may already exist — fetch the existing one
+    const userResp = await fetch("https://api.github.com/user", {
+      headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json" },
+    });
+    const user = await userResp.json() as { login?: string };
+    const login = user.login || "";
+    return `ℹ️ Репозиторий уже существует: \`${login}/${name}\`\n\nПолное имя: **${login}/${name}**`;
+  }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({})) as { message?: string };
+    return `⚠️ Ошибка создания репозитория: ${resp.status} ${err.message || ""}`;
+  }
+  const repo = await resp.json() as { full_name: string; html_url: string; clone_url: string };
+  return `✅ Репозиторий создан: **${repo.full_name}**\n🔗 ${repo.html_url}\n\nПолное имя для git_commit_and_push: \`${repo.full_name}\``;
+}
+
+/* ── deploy_to_railway ───────────────────────────────────────────────── */
+async function deployToRailway(
+  projectName: string, repo: string, railwayToken: string
+): Promise<string> {
+  const GQL = "https://backboard.railway.com/graphql/v2";
+  const headers = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${railwayToken}`,
+  };
+
+  // Step 1: Get current user to get teamId
+  const meResp = await fetch(GQL, {
+    method: "POST", headers,
+    body: JSON.stringify({ query: `{ me { id name } }` }),
+  });
+  const meData = await meResp.json() as { data?: { me?: { id: string; name: string } }; errors?: any[] };
+  if (meData.errors?.length) return `⚠️ Railway: ошибка авторизации. Проверь RAILWAY_TOKEN в Настройках.\n${JSON.stringify(meData.errors[0])}`;
+
+  // Step 2: Create project
+  const createResp = await fetch(GQL, {
+    method: "POST", headers,
+    body: JSON.stringify({
+      query: `mutation projectCreate($input: ProjectCreateInput!) {
+        projectCreate(input: $input) { id name }
+      }`,
+      variables: { input: { name: projectName, description: `Deployed by SYNAPSE AGENT from ${repo}` } },
+    }),
+  });
+  const createData = await createResp.json() as { data?: { projectCreate?: { id: string; name: string } }; errors?: any[] };
+  if (createData.errors?.length || !createData.data?.projectCreate) {
+    return `⚠️ Railway: ошибка создания проекта: ${JSON.stringify(createData.errors?.[0] || createData)}`;
+  }
+  const projectId = createData.data.projectCreate.id;
+
+  // Step 3: Get default environment
+  const envResp = await fetch(GQL, {
+    method: "POST", headers,
+    body: JSON.stringify({
+      query: `{ project(id: "${projectId}") { environments { edges { node { id name } } } } }`,
+    }),
+  });
+  const envData = await envResp.json() as { data?: { project?: { environments?: { edges?: { node: { id: string; name: string } }[] } } } };
+  const envId = envData.data?.project?.environments?.edges?.[0]?.node?.id;
+  if (!envId) return `⚠️ Railway: не удалось получить environment для проекта ${projectId}`;
+
+  // Step 4: Create service from GitHub repo
+  const [repoOwner, repoName] = repo.split("/");
+  const svcResp = await fetch(GQL, {
+    method: "POST", headers,
+    body: JSON.stringify({
+      query: `mutation serviceCreate($input: ServiceCreateInput!) {
+        serviceCreate(input: $input) { id name }
+      }`,
+      variables: {
+        input: {
+          projectId,
+          name: repoName || projectName,
+          source: { repo: `${repoOwner}/${repoName}` },
+        },
+      },
+    }),
+  });
+  const svcData = await svcResp.json() as { data?: { serviceCreate?: { id: string; name: string } }; errors?: any[] };
+  if (svcData.errors?.length || !svcData.data?.serviceCreate) {
+    return `⚠️ Railway: ошибка создания сервиса: ${JSON.stringify(svcData.errors?.[0] || svcData)}\n\nВозможно Railway не имеет доступа к репозиторию. Подключи GitHub в настройках Railway: https://railway.app/account/connections`;
+  }
+
+  const dashUrl = `https://railway.app/project/${projectId}`;
+  return `✅ **Деплой запущен на Railway!**\n\n` +
+    `- 📦 Проект: \`${projectName}\`\n` +
+    `- 🔗 GitHub: \`${repo}\`\n` +
+    `- 🚂 Dashboard: ${dashUrl}\n\n` +
+    `Railway автоматически строит и деплоит из ветки \`main\`. Через 2-5 минут проект будет доступен по Railway-домену.\n\n` +
+    `Зайди в ${dashUrl} → Settings → Domains → Generate Domain для получения публичного URL.`;
+}
+
 /* ── run_tests ──────────────────────────────────────────────────────── */
 async function runTests(command: string, chatRoot: string): Promise<string> {
   await fs.mkdir(chatRoot, { recursive: true });
@@ -1166,6 +1286,42 @@ async function executeTools(
         resultParts.push(`### 🔀 create_pull_request(head="${head}" → base="${base}")\n${result}`);
       } catch (e) {
         resultParts.push(`### 🔀 create_pull_request\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // create_github_repo
+  const createRepoMatches = [...fullContent.matchAll(/<create_github_repo\s+name="([^"]+)"(?:\s+description="([^"]*)")?(?:\s+private="([^"]+)")?\s*\/>/g)];
+  if (createRepoMatches.length) {
+    statusMessages.push("Создаю репозиторий на GitHub...");
+    const githubToken = await db.select().from(settingsTable).where(eq(settingsTable.key, "github_token"))
+      .then(r => r[0]?.value || "").catch(() => "");
+    for (const m of createRepoMatches) {
+      const name = m[1]; const desc = m[2] || ""; const isPrivate = m[3] === "true";
+      if (!githubToken) { resultParts.push(`### 📦 create_github_repo\n⚠️ Токен GitHub не настроен. Добавь его во вкладке Git (правая панель).`); continue; }
+      try {
+        const result = await createGithubRepo(name, desc, isPrivate, githubToken);
+        resultParts.push(`### 📦 create_github_repo("${name}")\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 📦 create_github_repo\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // deploy_to_railway
+  const railwayMatches = [...fullContent.matchAll(/<deploy_to_railway\s+project_name="([^"]+)"\s+repo="([^"]+)"\s*\/>/g)];
+  if (railwayMatches.length) {
+    statusMessages.push("Деплою на Railway...");
+    const railwayToken = await db.select().from(settingsTable).where(eq(settingsTable.key, "railway_token"))
+      .then(r => r[0]?.value || "").catch(() => "");
+    for (const m of railwayMatches) {
+      const projectName = m[1]; const repo = m[2];
+      if (!railwayToken) { resultParts.push(`### 🚂 deploy_to_railway\n⚠️ Railway токен не настроен. Добавь его во вкладке Git (правая панель) → Railway Token.\n\nПолучи токен на: https://railway.app/account/tokens`); continue; }
+      try {
+        const result = await deployToRailway(projectName, repo, railwayToken);
+        resultParts.push(`### 🚂 deploy_to_railway("${projectName}")\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 🚂 deploy_to_railway\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }

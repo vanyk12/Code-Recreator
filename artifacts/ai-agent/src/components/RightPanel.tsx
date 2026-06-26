@@ -409,6 +409,8 @@ function GitPanel({ chatId }: { chatId: number | null }) {
   const [repoUrl, setRepoUrl] = useState("");
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
+  const [railwayToken, setRailwayToken] = useState("");
+  const [showRailwayToken, setShowRailwayToken] = useState(false);
   const [commitMsg, setCommitMsg] = useState("feat: initial commit from SYNAPSE AGENT");
   const [branch, setBranch] = useState("main");
   const [steps, setSteps] = useState<{ step: GitStep; state: StepState; out: string }[]>([]);
@@ -425,6 +427,7 @@ function GitPanel({ chatId }: { chatId: number | null }) {
       .then(r => r.json())
       .then((d: Record<string, string>) => {
         if (d.github_token) setToken(d.github_token);
+        if (d.railway_token) setRailwayToken(d.railway_token);
       }).catch(() => {});
   }, []);
 
@@ -434,6 +437,15 @@ function GitPanel({ chatId }: { chatId: number | null }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ github_token: val }),
+    }).catch(() => {});
+  };
+
+  const saveRailwayToken = (val: string) => {
+    setRailwayToken(val);
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ railway_token: val }),
     }).catch(() => {});
   };
 
@@ -557,6 +569,43 @@ function GitPanel({ chatId }: { chatId: number | null }) {
           {token && (
             <p className="text-[10px] text-green-400/50 flex items-center gap-1">
               <CheckCircle2 size={9} /> Токен сохранён
+            </p>
+          )}
+        </div>
+
+        {/* Railway Token */}
+        <div className="flex items-center gap-2 pt-1">
+          <span className="text-[13px]">🚂</span>
+          <span className="text-[11px] font-medium text-foreground/60">Railway Deploy</span>
+        </div>
+        <div className="rounded-xl p-2.5 space-y-1 text-[11px] leading-relaxed text-muted-foreground/50"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <p className="font-medium text-foreground/40">Railway API Token:</p>
+          <p>1. Открой <a href="https://railway.app/account/tokens" target="_blank" rel="noreferrer"
+            className="text-accent/80 hover:underline inline-flex items-center gap-0.5">
+            railway.app/account/tokens <ExternalLink size={9} />
+          </a></p>
+          <p>2. Создай токен и вставь ниже</p>
+          <p>3. В Railway подключи GitHub: Account → Connections</p>
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] text-muted-foreground/40">Railway API Token</label>
+          <div className="relative">
+            <input
+              type={showRailwayToken ? "text" : "password"}
+              value={railwayToken}
+              onChange={e => saveRailwayToken(e.target.value)}
+              placeholder="railway_xxxxxxxxxxxxxxxxxxxxxxxx"
+              className="w-full bg-black/30 border border-white/8 rounded-xl px-3 py-2 pr-8 text-[11px] text-foreground/80 placeholder:text-muted-foreground/20 focus:outline-none focus:border-primary/30 font-mono"
+            />
+            <button onClick={() => setShowRailwayToken(v => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/30 hover:text-muted-foreground/60">
+              {showRailwayToken ? <EyeOff size={11} /> : <Eye size={11} />}
+            </button>
+          </div>
+          {railwayToken && (
+            <p className="text-[10px] text-green-400/50 flex items-center gap-1">
+              <CheckCircle2 size={9} /> Railway токен сохранён
             </p>
           )}
         </div>
