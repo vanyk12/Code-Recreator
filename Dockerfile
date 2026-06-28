@@ -60,8 +60,8 @@ RUN cp -r artifacts/ai-agent/dist/public /app/public
 # ============================================================
 # PRODUCTION
 # ============================================================
-# Install runtime dependencies for the start script
-RUN cd /app && npm install express http-proxy-middleware --no-save
+# Install runtime deps for start.mjs (use pnpm, not npm — npm breaks pnpm node_modules)
+RUN pnpm add express http-proxy-middleware -w
 
 # Copy production start script
 COPY railway/start.mjs /app/start.mjs
