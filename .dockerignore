@@ -1,0 +1,36 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+*.tsbuildinfo
+
+# Git
+.git
+.gitignore
+
+# Railway deploy files (not needed in Docker context)
+railway/
+deploy-to-repo.sh
+
+# Python TG bot test code (not needed for web app)
+chat-workspaces/
+main.py
+config.py
+requirements.txt
+replit.md
+
+# Assets (not needed for build)
+attached_assets/
+
+# IDE / OS
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Misc
+*.log
+.env
+.env.local
+.env.*.local
