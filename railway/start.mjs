@@ -76,7 +76,7 @@ app.use(
 );
 
 // SPA fallback: serve index.html for all non-API GET requests
-app.get("*", (req, res, next) => {
+app.get("/{*splat}", (req, res, next) => {
   // Skip API and asset requests
   if (req.path.startsWith("/api") || req.path.includes(".")) {
     return next();

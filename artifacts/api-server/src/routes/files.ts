@@ -49,7 +49,7 @@ router.get("/preview-file", async (req, res) => {
   }
 });
 
-router.get("/workspace/:chatId/*filePath", async (req, res) => {
+router.get("/workspace/:chatId/{*filePath}", async (req, res) => {
   try {
     const chatId = parseInt(req.params.chatId);
     if (isNaN(chatId)) { res.status(400).send("Invalid chat ID"); return; }
