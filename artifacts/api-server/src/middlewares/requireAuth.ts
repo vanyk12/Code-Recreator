@@ -1,22 +1,46 @@
 import { createHmac } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
-const hasClerk = !!process.env.CLERK_SECRET_KEY;
+// ─── Supabase JWT verification ────────────────────────────────────────
+const hasSupabase = !!process.env.SUPABASE_JWT_SECRET;
 
-// Lazy Clerk import — only loaded when actually needed
-let _getAuth: ((req: any) => any) | null = null;
-async function loadClerkGetAuth() {
-  if (!_getAuth && hasClerk) {
-    try {
-      const mod = await import("@clerk/express");
-      _getAuth = mod.getAuth;
-    } catch {
-      _getAuth = null;
+async function verifySupabaseJWT(token: string): Promise<string | null> {
+  const secret = process.env.SUPABASE_JWT_SECRET;
+  if (!secret) return null;
+
+  try {
+    // Supabase uses HS256 JWTs
+    // Split token into header.payload.signature
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+
+    // Verify signature
+    const signature = createHmac("sha256", secret)
+      .update(`${parts[0]}.${parts[1]}`)
+      .digest("base64url");
+
+    if (signature !== parts[2]) return null;
+
+    // Decode payload
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
+
+    // Check expiration
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
     }
+
+    // Check issuer (Supabase project URL)
+    if (process.env.SUPABASE_URL && payload.iss) {
+      if (!payload.iss.startsWith(process.env.SUPABASE_URL)) return null;
+    }
+
+    return payload.sub || null;
+  } catch {
+    return null;
   }
-  return _getAuth;
 }
 
+// ─── Telegram auth verification ───────────────────────────────────────
 function validateTelegramInitData(initData: string): string | null {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!initData) return null;
@@ -50,7 +74,9 @@ function validateTelegramInitData(initData: string): string | null {
   return null;
 }
 
+// ─── Main auth middleware ─────────────────────────────────────────────
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // 1. Try Telegram auth (for Telegram Mini App mode)
   const tgInitData = req.headers["x-telegram-init-data"] as string | undefined;
   if (tgInitData) {
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -74,32 +100,29 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     if (userId) {
       (req as Request & { userId: string }).userId = userId;
-      next();
-      return;
+      return next();
     }
   }
 
-  // Try Clerk auth only if configured
-  if (hasClerk) {
-    const getAuth = await loadClerkGetAuth();
-    if (getAuth) {
-      try {
-        const auth = getAuth(req);
-        const userId = auth?.userId;
-        if (userId) {
-          (req as Request & { userId: string }).userId = userId;
-          next();
-          return;
-        }
-      } catch {
-        // Clerk auth failed, fall through
-      }
+  // 2. Try Supabase JWT (Bearer token)
+  const authHeader = req.headers.authorization;
+  if (hasSupabase && authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const userId = await verifySupabaseJWT(token);
+    if (userId) {
+      (req as Request & { userId: string }).userId = `sb_${userId}`;
+      return next();
     }
   }
 
-  // No auth method succeeded — use default user for Railway standalone mode
-  (req as Request & { userId: string }).userId = "railway_default_user";
-  next();
+  // 3. Fallback: no auth configured — use default user
+  if (!hasSupabase) {
+    (req as Request & { userId: string }).userId = "railway_default_user";
+    return next();
+  }
+
+  // 4. Auth is configured but no valid credentials
+  res.status(401).json({ error: "Unauthorized" });
 }
 
 export async function getUserId(req: Request): Promise<string | null> {
@@ -108,16 +131,11 @@ export async function getUserId(req: Request): Promise<string | null> {
     const userId = validateTelegramInitData(tgInitData);
     if (userId) return userId;
   }
-  if (hasClerk) {
-    const getAuth = await loadClerkGetAuth();
-    if (getAuth) {
-      try {
-        const auth = getAuth(req);
-        return auth?.userId ?? null;
-      } catch {
-        // Clerk not available
-      }
-    }
+  const authHeader = req.headers.authorization;
+  if (hasSupabase && authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const userId = await verifySupabaseJWT(token);
+    if (userId) return `sb_${userId}`;
   }
   return (req as any).userId ?? null;
 }

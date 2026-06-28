@@ -75,21 +75,35 @@ const app = express();
 app.use(express.static(PUBLIC_DIR));
 
 // Proxy all /api requests to the internal API server
+// The API server mounts its router at /api, so we must forward the FULL path
 app.use(
-  "/api",
   createProxyMiddleware({
+    // Match all requests starting with /api
+    filter: (pathname) => pathname.startsWith("/api"),
     target: `http://127.0.0.1:${API_PORT}`,
     changeOrigin: true,
-    // Forward the original host header for CORS
-    onProxyReq: (proxyReq, req) => {
-      proxyReq.setHeader("X-Forwarded-Host", req.headers.host || "");
-      proxyReq.setHeader("X-Forwarded-Proto", "https");
-    },
-    onError: (err, req, res) => {
-      console.error(`[start] Proxy error: ${req.method} ${req.url}`, err.message);
-      if (!res.headersSent) {
-        res.status(502).json({ error: "API proxy error" });
-      }
+    // CRITICAL: Do NOT rewrite the path — forward /api/chats as-is
+    // so the API server's app.use("/api", router) matches correctly
+    on: {
+      proxyReq: (proxyReq, req) => {
+        console.log(`[proxy] ${req.method} ${req.url} → 127.0.0.1:${API_PORT}${req.url}`);
+        proxyReq.setHeader("X-Forwarded-Host", req.headers.host || "");
+        proxyReq.setHeader("X-Forwarded-Proto", "https");
+      },
+      proxyRes: (proxyRes, req) => {
+        const status = proxyRes.statusCode;
+        console.log(`[proxy] ${req.method} ${req.url} ← ${status}`);
+        if (status >= 400) {
+          console.error(`[proxy] ERROR ${status} for ${req.method} ${req.url}`);
+        }
+      },
+      error: (err, req, res) => {
+        console.error(`[proxy] Proxy error: ${req.method} ${req.url}`, err.message);
+        console.error(err.stack);
+        if (!res.headersSent) {
+          res.status(502).json({ error: "API proxy error" });
+        }
+      },
     },
   })
 );

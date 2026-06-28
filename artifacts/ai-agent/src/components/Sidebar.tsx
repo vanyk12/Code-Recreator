@@ -5,21 +5,8 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { SettingsDialog } from "./SettingsDialog";
 import { useState, useEffect } from "react";
-import { useTheme } from "@/App";
-import { CLERK_ENABLED } from "@/lib/clerk";
-import { useClerk, useUser } from "@clerk/react";
-
-// Safe Clerk hooks — return stubs when Clerk is disabled
-function useSafeClerk() {
-  try {
-    return useClerk();
-  } catch { return { signOut: () => {} }; }
-}
-function useSafeUser() {
-  try {
-    return useUser();
-  } catch { return { user: null }; }
-}
+import { useTheme, useAuth } from "@/App";
+import { AUTH_ENABLED } from "@/lib/auth";
 
 export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number | null; onSelectChat: (id: number | null) => void }) {
   const { data: chats } = useListChats();
@@ -29,9 +16,9 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [defaultModel, setDefaultModel] = useState("anthropic/claude-3.5-sonnet");
+  const [chatError, setChatError] = useState<string | null>(null);
   const { theme, toggle } = useTheme();
-  const { signOut } = useSafeClerk();
-  const { user } = useSafeUser();
+  const { user, signOut } = useAuth();
 
   useEffect(() => {
     fetch("/api/settings")
@@ -43,10 +30,18 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
   }, []);
 
   const handleNewChat = () => {
+    setChatError(null);
+    console.log("[Sidebar] Creating new chat, model:", defaultModel);
     createChat.mutate({ data: { title: "Новый чат", model: defaultModel } }, {
       onSuccess: (chat) => {
+        console.log("[Sidebar] Chat created:", chat.id);
         onSelectChat(chat.id);
         queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
+      },
+      onError: (err) => {
+        console.error("[Sidebar] Failed to create chat:", err);
+        setChatError(err instanceof Error ? err.message : "Ошибка создания чата");
+        setTimeout(() => setChatError(null), 5000);
       }
     });
   };
@@ -68,9 +63,8 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
     }
   };
 
-  const handleSignOut = () => {
-    signOut();
-    queryClient.clear();
+  const handleSignOut = async () => {
+    await signOut();
   };
 
   /* ── Collapsed state ── */
@@ -169,9 +163,12 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
             className="w-full flex items-center justify-center gap-2 bg-primary/90 hover:bg-primary text-primary-foreground py-2 rounded-xl font-semibold text-sm transition-all shadow-sm"
             data-testid="button-new-chat"
           >
-            <Plus size={15} />
-            Новый чат
+            {createChat.isPending ? <span className="animate-spin">⟳</span> : <Plus size={15} />}
+            {createChat.isPending ? "Создание..." : "Новый чат"}
           </button>
+          {chatError && (
+            <div className="text-destructive text-xs px-1 mt-1.5 leading-relaxed">{chatError}</div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 space-y-0.5">
@@ -209,24 +206,25 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
         </div>
 
         <div className="p-3 space-y-1">
+          {/* User info */}
           {user && (
             <div
               className="flex items-center gap-2.5 px-3 py-2 rounded-xl mb-1"
               style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
             >
-              {user.imageUrl ? (
-                <img src={user.imageUrl} alt="Avatar" className="w-6 h-6 rounded-full shrink-0 object-cover" />
+              {user.user_metadata?.avatar_url ? (
+                <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-6 h-6 rounded-full shrink-0 object-cover" />
               ) : (
                 <div className="w-6 h-6 rounded-full bg-primary/30 flex items-center justify-center shrink-0 text-xs text-primary font-bold">
-                  {(user.firstName?.[0] || user.emailAddresses?.[0]?.emailAddress?.[0] || "?").toUpperCase()}
+                  {(user.user_metadata?.name?.[0] || user.email?.[0] || "?").toUpperCase()}
                 </div>
               )}
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium truncate text-sidebar-foreground">
-                  {user.firstName || user.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "Пользователь"}
+                  {user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split("@")[0] || "Пользователь"}
                 </div>
                 <div className="text-[10px] text-muted-foreground/60 truncate">
-                  {user.emailAddresses?.[0]?.emailAddress}
+                  {user.user_metadata?.email || user.email}
                 </div>
               </div>
             </div>
@@ -252,17 +250,19 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
                 : <><Moon size={14} className="shrink-0" /><span className="text-sm font-medium">Тёмная тема</span></>
               }
             </button>
-            {CLERK_ENABLED && <>
-            <div style={{ height: "1px", background: "rgba(255,255,255,0.05)", margin: "0 10px" }} />
-            <button
-              onClick={handleSignOut}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-muted-foreground/70 hover:text-destructive hover:bg-white/5 transition-all text-left"
-              data-testid="button-sign-out"
-            >
-              <LogOut size={14} className="shrink-0" />
-              <span className="text-sm font-medium">Выйти</span>
-            </button>
-            </>}
+            {AUTH_ENABLED && (
+              <>
+                <div style={{ height: "1px", background: "rgba(255,255,255,0.05)", margin: "0 10px" }} />
+                <button
+                  onClick={handleSignOut}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-muted-foreground/70 hover:text-destructive hover:bg-white/5 transition-all text-left"
+                  data-testid="button-sign-out"
+                >
+                  <LogOut size={14} className="shrink-0" />
+                  <span className="text-sm font-medium">Выйти</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

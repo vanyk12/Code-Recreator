@@ -36,8 +36,10 @@ router.get("/chats", requireAuth, async (req, res) => {
 });
 
 router.post("/chats", requireAuth, async (req, res) => {
+  console.log("[chats] POST /chats received, body:", JSON.stringify(req.body));
   try {
     const userId = (req as typeof req & { userId: string }).userId;
+    console.log("[chats] userId:", userId);
     const { title, model } = req.body;
     const [chat] = await db.insert(chatsTable).values({
       userId,
@@ -45,6 +47,7 @@ router.post("/chats", requireAuth, async (req, res) => {
       model: model || "anthropic/claude-3.5-sonnet",
     }).returning();
 
+    console.log("[chats] Chat created:", chat.id);
     res.status(201).json({
       ...chat,
       createdAt: chat.createdAt.toISOString(),
@@ -53,8 +56,9 @@ router.post("/chats", requireAuth, async (req, res) => {
       totalTokens: 0,
     });
   } catch (err) {
-    req.log.error(err);
-    res.status(500).json({ error: "Failed to create chat" });
+    console.error("[chats] ERROR creating chat:", err);
+    req.log?.error(err);
+    res.status(500).json({ error: "Failed to create chat", detail: String(err) });
   }
 });
 
