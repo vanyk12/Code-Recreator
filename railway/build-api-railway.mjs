@@ -28,6 +28,14 @@ async function buildAll() {
     logLevel: "info",
     external: [
       "*.node",
+      // Express and related — load from node_modules at runtime
+      // to ensure consistent path-to-regexp v8 with start.mjs
+      "express",
+      "router",
+      "path-to-regexp",
+      "@clerk/express",
+      "@clerk/backend",
+      "@clerk/shared",
       "sharp",
       "better-sqlite3",
       "sqlite3",

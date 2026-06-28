@@ -10,6 +10,7 @@
 // ====================================================================
 
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import express from "express";
@@ -17,6 +18,7 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
+const INDEX_HTML = path.join(PUBLIC_DIR, "index.html");
 const API_BUNDLE = path.join(__dirname, "artifacts", "api-server", "dist", "railway-entry.mjs");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -44,14 +46,25 @@ try {
 console.log(`[start] Starting API server on port ${API_PORT}...`);
 process.env.PORT = String(API_PORT);
 
-// Dynamic import triggers the API server's index.mjs which calls app.listen()
-// But we built with railway-entry.ts which only exports the app, so we
-// need to start it manually.
-const { default: apiApp } = await import(API_BUNDLE);
+let apiApp;
+try {
+  const mod = await import(API_BUNDLE);
+  apiApp = mod.default;
+} catch (err) {
+  console.error("[start] FATAL: Failed to load API bundle:", err.message);
+  console.error(err.stack);
+  process.exit(1);
+}
 
-apiApp.listen(API_PORT, () => {
-  console.log(`[start] API server listening on http://localhost:${API_PORT}`);
-});
+try {
+  apiApp.listen(API_PORT, () => {
+    console.log(`[start] API server listening on http://localhost:${API_PORT}`);
+  });
+} catch (err) {
+  console.error("[start] FATAL: Failed to start API server:", err.message);
+  console.error(err.stack);
+  process.exit(1);
+}
 
 // ----------------------------------------------------------------
 // 3. Create public-facing server: static files + API proxy
@@ -72,16 +85,28 @@ app.use(
       proxyReq.setHeader("X-Forwarded-Host", req.headers.host || "");
       proxyReq.setHeader("X-Forwarded-Proto", "https");
     },
+    onError: (err, req, res) => {
+      console.error(`[start] Proxy error: ${req.method} ${req.url}`, err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: "API proxy error" });
+      }
+    },
   })
 );
 
-// SPA fallback: serve index.html for all non-API GET requests
-app.get("/{*splat}", (req, res, next) => {
-  // Skip API and asset requests
-  if (req.path.startsWith("/api") || req.path.includes(".")) {
+// SPA fallback: serve index.html for all non-API, non-asset GET requests
+// Using plain middleware instead of app.get("*path") to avoid any path-to-regexp issues
+app.use((req, res, next) => {
+  // Skip API requests (already handled by proxy above, but just in case)
+  if (req.path.startsWith("/api")) {
     return next();
   }
-  res.sendFile(path.join(PUBLIC_DIR, "index.html"), (err) => {
+  // Skip requests for static assets (files with extensions)
+  if (req.path.includes(".") && req.path.lastIndexOf(".") > req.path.lastIndexOf("/")) {
+    return next();
+  }
+  // Serve index.html for SPA routing
+  res.sendFile(INDEX_HTML, (err) => {
     if (err) next(err);
   });
 });
