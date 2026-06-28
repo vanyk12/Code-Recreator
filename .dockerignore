@@ -9,8 +9,7 @@ dist
 .git
 .gitignore
 
-# Railway deploy files (not needed in Docker context)
-railway/
+# Deploy helper script (not needed in Docker context)
 deploy-to-repo.sh
 
 # Python TG bot test code (not needed for web app)
