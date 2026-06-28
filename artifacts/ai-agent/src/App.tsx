@@ -10,6 +10,7 @@ import { useState, useEffect, createContext, useContext, useRef } from "react";
 import { ClerkProvider, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { dark } from "@clerk/themes";
+import { CLERK_ENABLED } from "@/lib/clerk";
 
 const queryClient = new QueryClient();
 
@@ -20,10 +21,9 @@ export function useTheme() { return useContext(ThemeContext); }
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
+const clerkPubKey = CLERK_ENABLED
+  ? publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
+  : "";
 
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 
@@ -155,6 +155,16 @@ function ClerkProviderWithRoutes() {
   );
 }
 
+// ─── No-Clerk mode: render app directly without auth ────────────────────
+function NoClerkApp() {
+  return (
+    <Switch>
+      <Route path="/" component={Home} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() => {
     return (localStorage.getItem("synapse-theme") as Theme) || "dark";
@@ -162,7 +172,7 @@ function App() {
 
   useEffect(() => {
     // Initialize Telegram Mini App SDK if opened inside Telegram
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript/typescript-eslint/no-explicit-any
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
       tg.ready();
@@ -182,7 +192,12 @@ function App() {
   return (
     <ThemeContext.Provider value={{ theme, toggle }}>
       <WouterRouter base={basePath}>
-        <ClerkProviderWithRoutes />
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            {CLERK_ENABLED ? <ClerkProviderWithRoutes /> : <NoClerkApp />}
+            <Toaster />
+          </TooltipProvider>
+        </QueryClientProvider>
       </WouterRouter>
     </ThemeContext.Provider>
   );

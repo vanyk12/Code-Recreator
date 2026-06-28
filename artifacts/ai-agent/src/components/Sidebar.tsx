@@ -6,7 +6,20 @@ import { ru } from "date-fns/locale";
 import { SettingsDialog } from "./SettingsDialog";
 import { useState, useEffect } from "react";
 import { useTheme } from "@/App";
+import { CLERK_ENABLED } from "@/lib/clerk";
 import { useClerk, useUser } from "@clerk/react";
+
+// Safe Clerk hooks — return stubs when Clerk is disabled
+function useSafeClerk() {
+  try {
+    return useClerk();
+  } catch { return { signOut: () => {} }; }
+}
+function useSafeUser() {
+  try {
+    return useUser();
+  } catch { return { user: null }; }
+}
 
 export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number | null; onSelectChat: (id: number | null) => void }) {
   const { data: chats } = useListChats();
@@ -17,8 +30,8 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
   const [collapsed, setCollapsed] = useState(false);
   const [defaultModel, setDefaultModel] = useState("anthropic/claude-3.5-sonnet");
   const { theme, toggle } = useTheme();
-  const { signOut } = useClerk();
-  const { user } = useUser();
+  const { signOut } = useSafeClerk();
+  const { user } = useSafeUser();
 
   useEffect(() => {
     fetch("/api/settings")
@@ -239,6 +252,7 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
                 : <><Moon size={14} className="shrink-0" /><span className="text-sm font-medium">Тёмная тема</span></>
               }
             </button>
+            {CLERK_ENABLED && <>
             <div style={{ height: "1px", background: "rgba(255,255,255,0.05)", margin: "0 10px" }} />
             <button
               onClick={handleSignOut}
@@ -248,6 +262,7 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
               <LogOut size={14} className="shrink-0" />
               <span className="text-sm font-medium">Выйти</span>
             </button>
+            </>}
           </div>
         </div>
       </div>
