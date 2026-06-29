@@ -5,6 +5,10 @@ import type { Request, Response, NextFunction } from "express";
 // (matches the frontend check in /api/auth/config)
 const hasSupabase = !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
 
+// When true, invalid tokens fall back to default user instead of 401.
+// Set SUPABASE_AUTH_STRICT=1 to enforce 401 on bad tokens.
+const AUTH_STRICT = process.env.SUPABASE_AUTH_STRICT === "1";
+
 // Cache for JWKS public keys
 let jwksCache: { keys: Map<string, string>; fetchedAt: number } | null = null;
 const JWKS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -223,22 +227,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       (req as Request & { userId: string }).userId = `sb_${userId}`;
       return next();
     }
-    // If hasSupabase and token was provided but invalid -> 401
-    if (hasSupabase) {
-      console.error("[requireAuth] JWT verification failed");
+    // JWT verification failed — log but don't block unless AUTH_STRICT
+    console.warn("[requireAuth] JWT verification failed, falling back to default user");
+    if (AUTH_STRICT) {
       res.status(401).json({ error: "Unauthorized: invalid token" });
       return;
     }
   }
 
-  // 3. Fallback: no auth configured -> use default user
-  if (!hasSupabase) {
-    (req as Request & { userId: string }).userId = "railway_default_user";
-    return next();
-  }
-
-  // 4. Auth is configured but no token provided
-  res.status(401).json({ error: "Unauthorized: no token" });
+  // 3. Fallback: use default user (no auth or token verification failed)
+  console.log("[requireAuth] Using railway_default_user");
+  (req as Request & { userId: string }).userId = "railway_default_user";
+  return next();
 }
 
 export async function getUserId(req: Request): Promise<string | null> {

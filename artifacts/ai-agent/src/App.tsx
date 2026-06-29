@@ -165,9 +165,29 @@ function App() {
   const signOut = async () => {
     const sb = supabaseRef.current;
     if (sb) {
-      await sb.auth.signOut();
-      queryClient.clear();
+      await sb.auth.signOut({ scope: 'global' });
     }
+    // Clear ALL Supabase keys from localStorage to prevent token leaking between accounts
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('sb-') || k.includes('supabase') || k.includes('auth-token'))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch {}
+    // Clear session storage too
+    try {
+      sessionStorage.clear();
+    } catch {}
+    setSession(null);
+    setUser(null);
+    setAuthTokenGetter(null);
+    queryClient.clear();
+    queryClient.resetQueries();
+    supabaseRef.current = null;
   };
 
   const authCtx: AuthCtx = { user, session, loading: authLoading, signOut };
