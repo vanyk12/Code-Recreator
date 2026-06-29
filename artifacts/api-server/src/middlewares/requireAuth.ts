@@ -22,8 +22,13 @@ async function getJwksPublicKey(kid: string): Promise<string | null> {
 
   // Fetch JWKS from Supabase
   try {
-    const jwksUrl = `${supabaseUrl.replace(/\/$/, "")}/auth/v1/jwks.json`;
-    const res = await fetch(jwksUrl);
+    const baseUrl = supabaseUrl.replace(/\/$/, "");
+    const jwksUrl = `${baseUrl}/auth/v1/jwks.json`;
+    const headers: Record<string, string> = {};
+    // Supabase requires apikey for JWKS endpoint
+    const anonKey = process.env.SUPABASE_ANON_KEY;
+    if (anonKey) headers["apikey"] = anonKey;
+    const res = await fetch(jwksUrl, { headers });
     if (!res.ok) return null;
     const jwks = await res.json();
 
