@@ -2,7 +2,7 @@ import { createHmac, createPublicKey } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
 // ─── Supabase JWT verification (ES256 via JWKS) ──────────────────────
-const hasSupabase = !!process.env.SUPABASE_JWT_SECRET || !!process.env.SUPABASE_URL;
+const hasSupabase = !!process.env.SUPABASE_JWT_SECRET;
 
 // Cache for JWKS public keys
 let jwksCache: { keys: Map<string, string>; fetchedAt: number } | null = null;
