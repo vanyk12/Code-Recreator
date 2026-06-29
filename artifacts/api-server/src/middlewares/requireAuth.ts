@@ -1,4 +1,4 @@
-import { createHmac, createPublicKey } from "crypto";
+import { createHmac, createPublicKey, verify } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
 // ─── Supabase JWT verification (ES256 via JWKS) ──────────────────────
@@ -78,6 +78,8 @@ async function verifySupabaseJWT(token: string): Promise<string | null> {
     }
 
     // ES256/ES384/ES512: verify with public key from JWKS
+    // JWT uses raw r||s signature, but Node.js crypto.verify expects DER by default.
+    // Node 20+ supports dsaEncoding: 'ieee-p1363' for raw format.
     if (alg?.startsWith("ES") && kid) {
       const pem = await getJwksPublicKey(kid);
       if (!pem) return null;
@@ -93,7 +95,12 @@ async function verifySupabaseJWT(token: string): Promise<string | null> {
       const signature = Buffer.from(parts[2], "base64url");
       const data = Buffer.from(`${parts[0]}.${parts[1]}`, "utf-8");
 
-      const valid = require("crypto").verify(hashAlg, data, publicKey, signature);
+      const valid = verify(
+        hashAlg,
+        data,
+        { key: publicKey, dsaEncoding: "ieee-p1363" },
+        signature,
+      );
       return valid ? (payload.sub || null) : null;
     }
 
