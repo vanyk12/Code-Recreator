@@ -1,27 +1,70 @@
-import { createHmac } from "crypto";
+import { createHmac, createPublicKey } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
-// ─── Supabase JWT verification ────────────────────────────────────────
-const hasSupabase = !!process.env.SUPABASE_JWT_SECRET;
+// ─── Supabase JWT verification (ES256 via JWKS) ──────────────────────
+const hasSupabase = !!process.env.SUPABASE_JWT_SECRET || !!process.env.SUPABASE_URL;
+
+// Cache for JWKS public keys
+let jwksCache: { keys: Map<string, string>; fetchedAt: number } | null = null;
+const JWKS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getJwksPublicKey(kid: string): Promise<string | null> {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  if (!supabaseUrl) return null;
+
+  const now = Date.now();
+
+  // Return cached key if available and fresh
+  if (jwksCache && now - jwksCache.fetchedAt < JWKS_CACHE_TTL) {
+    const key = jwksCache.keys.get(kid);
+    if (key) return key;
+  }
+
+  // Fetch JWKS from Supabase
+  try {
+    const jwksUrl = `${supabaseUrl.replace(/\/$/, "")}/auth/v1/jwks.json`;
+    const res = await fetch(jwksUrl);
+    if (!res.ok) return null;
+    const jwks = await res.json();
+
+    const keys = new Map<string, string>();
+    for (const jwk of jwks.keys || []) {
+      // Convert JWK to PEM
+      if (jwk.kty === "EC" || jwk.kty === "RSA") {
+        const pem = jwkToPem(jwk);
+        if (pem) keys.set(jwk.kid, pem);
+      }
+    }
+
+    jwksCache = { keys, fetchedAt: now };
+    return keys.get(kid) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Convert a JWK to PEM format using Node.js crypto */
+function jwkToPem(jwk: Record<string, unknown>): string | null {
+  try {
+    // Node.js createPublicKey accepts JWK directly (in object form)
+    const publicKey = createPublicKey({ format: "jwk", key: jwk });
+    return publicKey.export({ type: "spki", format: "pem" }) as string;
+  } catch {
+    return null;
+  }
+}
 
 async function verifySupabaseJWT(token: string): Promise<string | null> {
-  const secret = process.env.SUPABASE_JWT_SECRET;
-  if (!secret) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
 
   try {
-    // Supabase uses HS256 JWTs
-    // Split token into header.payload.signature
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
+    // Decode header to get algorithm and kid
+    const header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf-8"));
+    const kid = header.kid;
+    const alg = header.alg;
 
-    // Verify signature
-    const signature = createHmac("sha256", secret)
-      .update(`${parts[0]}.${parts[1]}`)
-      .digest("base64url");
-
-    if (signature !== parts[2]) return null;
-
-    // Decode payload
+    // Decode payload for expiration/issuer checks
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
 
     // Check expiration
@@ -34,7 +77,44 @@ async function verifySupabaseJWT(token: string): Promise<string | null> {
       if (!payload.iss.startsWith(process.env.SUPABASE_URL)) return null;
     }
 
-    return payload.sub || null;
+    // ES256/ES384/ES512: verify with public key from JWKS
+    if (alg?.startsWith("ES") && kid) {
+      const pem = await getJwksPublicKey(kid);
+      if (!pem) return null;
+
+      const publicKey = createPublicKey(pem);
+      const algMap: Record<string, string> = {
+        ES256: "sha256",
+        ES384: "sha384",
+        ES512: "sha512",
+      };
+      const hashAlg = algMap[alg] || "sha256";
+
+      const signature = Buffer.from(parts[2], "base64url");
+      const data = Buffer.from(`${parts[0]}.${parts[1]}`, "utf-8");
+
+      const valid = require("crypto").verify(hashAlg, data, publicKey, signature);
+      return valid ? (payload.sub || null) : null;
+    }
+
+    // HS256/HS384/HS512: verify with JWT secret (legacy)
+    if (alg?.startsWith("HS") && process.env.SUPABASE_JWT_SECRET) {
+      const algMap: Record<string, string> = {
+        HS256: "sha256",
+        HS384: "sha384",
+        HS512: "sha512",
+      };
+      const hashAlg = algMap[alg] || "sha256";
+
+      const signature = createHmac(hashAlg, process.env.SUPABASE_JWT_SECRET)
+        .update(`${parts[0]}.${parts[1]}`)
+        .digest("base64url");
+
+      return signature === parts[2] ? (payload.sub || null) : null;
+    }
+
+    // Unsupported algorithm
+    return null;
   } catch {
     return null;
   }
