@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import authConfigRouter from "./auth-config";
 import chatsRouter from "./chats";
 import streamRouter from "./stream";
 import filesRouter from "./files";
@@ -11,6 +12,7 @@ import botRouter from "./bot";
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(authConfigRouter);
 router.use(chatsRouter);
 router.use(streamRouter);
 router.use(filesRouter);

@@ -1,14 +1,15 @@
-import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Home } from "@/pages/Home";
 import { SignInPage } from "@/pages/SignInPage";
-import { useState, useEffect, createContext, useContext } from "react";
-import { supabase, SUPABASE_ENABLED } from "@/lib/supabase";
+import { useState, useEffect, createContext, useContext, useRef } from "react";
+import { initSupabase, getSupabaseState } from "@/lib/supabase";
+import { AUTH_ENABLED, setAuthEnabled } from "@/lib/auth";
 import { setAuthTokenGetter } from "@workspace/api-client-react";
-import type { User, Session } from "@supabase/supabase-js";
+import type { User, Session, SupabaseClient } from "@supabase/supabase-js";
 
 const queryClient = new QueryClient();
 
@@ -33,12 +34,6 @@ export const AuthContext = createContext<AuthCtx>({
 export function useAuth() { return useContext(AuthContext); }
 
 export { type User, type Session };
-
-function stripBase(path: string): string {
-  return basePath && path.startsWith(basePath)
-    ? path.slice(basePath.length) || "/"
-    : path;
-}
 
 // ─── Router ───────────────────────────────────────────────────────────
 function Router() {
@@ -78,13 +73,17 @@ function App() {
     return (localStorage.getItem("synapse-theme") as Theme) || "dark";
   });
 
+  // ── Runtime config loading state ──
+  const [configLoaded, setConfigLoaded] = useState(false);
+
   // ── Auth state ──
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [authLoading, setAuthLoading] = useState(SUPABASE_ENABLED);
+  const [authLoading, setAuthLoading] = useState(true);
+  const supabaseRef = useRef<SupabaseClient | null>(null);
 
+  // ── Initialize Telegram Mini App SDK ──
   useEffect(() => {
-    // Initialize Telegram Mini App SDK if opened inside Telegram
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
       tg.ready();
@@ -92,6 +91,7 @@ function App() {
     }
   }, []);
 
+  // ── Theme ──
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove("dark", "light");
@@ -101,52 +101,79 @@ function App() {
 
   const toggle = () => setTheme(t => t === "dark" ? "light" : "dark");
 
-  // ── Supabase auth ──
+  // ── Fetch runtime auth config from server ──
   useEffect(() => {
-    if (!supabase) {
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/config");
+        const cfg = await res.json();
+        if (cfg.supabaseEnabled && cfg.supabaseUrl && cfg.supabaseAnonKey) {
+          initSupabase(cfg.supabaseUrl, cfg.supabaseAnonKey);
+          setAuthEnabled(true);
+        } else {
+          setAuthEnabled(false);
+        }
+      } catch {
+        const { enabled } = getSupabaseState();
+        setAuthEnabled(enabled);
+      } finally {
+        setConfigLoaded(true);
+      }
+    })();
+  }, []);
+
+  // ── Supabase auth session management ──
+  useEffect(() => {
+    if (!configLoaded) return;
+
+    const { client: currentSupabase, enabled: isEnabled } = getSupabaseState();
+
+    if (!currentSupabase || !isEnabled) {
       setAuthLoading(false);
       return;
     }
 
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabaseRef.current = currentSupabase;
+
+    currentSupabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
       setAuthLoading(false);
     });
 
-    // Listen for auth changes (OAuth redirect, sign out, etc.)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = currentSupabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [configLoaded]);
 
   // ── Auto-attach Supabase access token to all API requests ──
   useEffect(() => {
-    if (supabase && session) {
+    const sb = supabaseRef.current;
+    if (sb && session) {
       setAuthTokenGetter(async () => {
-        const { data: { session: s } } = await supabase.auth.getSession();
+        const { data: { session: s } } = await sb.auth.getSession();
         return s?.access_token ?? null;
       });
     } else {
       setAuthTokenGetter(null);
     }
-  }, [session]);
+  }, [session, configLoaded]);
 
   const signOut = async () => {
-    if (supabase) {
-      await supabase.auth.signOut();
+    const sb = supabaseRef.current;
+    if (sb) {
+      await sb.auth.signOut();
       queryClient.clear();
     }
   };
 
   const authCtx: AuthCtx = { user, session, loading: authLoading, signOut };
 
-  // ── Render ──
-  if (SUPABASE_ENABLED && authLoading) {
+  // ── Wait for runtime config to load ──
+  if (!configLoaded) {
     return (
       <ThemeContext.Provider value={{ theme, toggle }}>
         <LoadingScreen />
@@ -154,7 +181,16 @@ function App() {
     );
   }
 
-  if (SUPABASE_ENABLED && !session) {
+  // ── Auth enabled: show loading or sign-in ──
+  if (AUTH_ENABLED && authLoading) {
+    return (
+      <ThemeContext.Provider value={{ theme, toggle }}>
+        <LoadingScreen />
+      </ThemeContext.Provider>
+    );
+  }
+
+  if (AUTH_ENABLED && !session) {
     return (
       <ThemeContext.Provider value={{ theme, toggle }}>
         <WouterRouter base={basePath}>
@@ -169,6 +205,7 @@ function App() {
     );
   }
 
+  // ── Main app ──
   return (
     <ThemeContext.Provider value={{ theme, toggle }}>
       <AuthContext.Provider value={authCtx}>

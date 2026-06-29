@@ -5,8 +5,8 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { SettingsDialog } from "./SettingsDialog";
 import { useState, useEffect } from "react";
-import { useTheme, useAuth } from "@/App";
 import { AUTH_ENABLED } from "@/lib/auth";
+import { useTheme, useAuth } from "@/App";
 
 export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number | null; onSelectChat: (id: number | null) => void }) {
   const { data: chats } = useListChats();

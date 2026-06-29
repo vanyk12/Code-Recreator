@@ -1,9 +1,11 @@
-import { supabase, SUPABASE_ENABLED } from "@/lib/supabase";
+import { getSupabaseState } from "@/lib/supabase";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function SignInPage() {
-  if (!SUPABASE_ENABLED || !supabase) {
+  const { client: supabase } = getSupabaseState();
+
+  if (!supabase) {
     return null;
   }
 
