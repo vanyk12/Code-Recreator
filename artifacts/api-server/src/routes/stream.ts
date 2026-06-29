@@ -50,9 +50,9 @@ Use XML tags (self-closing or with content) to invoke tools:
 
 ### Web & Research  
 - \`<web_search query="your search query" />\` — search the internet
-- \`<fetch_url url="https://example.com" />\` — fetch webpage content
+- \`<fetch_url url="https://example.com" />\` — fetch webpage content (used automatically by crawl_telegram_bot for WebView/URL buttons, but can also be called directly)
 - \`<analyze_telegram_bot username="@botname" />\` — fetch public info about the bot (description, web mentions, bot directories). After this tool, always offer the user to use \`crawl_telegram_bot\` with a session string for a deep automatic crawl, OR ask them to share screenshots.
-- \`<crawl_telegram_bot username="@botname" session="SESSION_STRING" />\` — **deep automatic crawl** of the bot using a real Telegram user session. Connects as a real user, sends /start, automatically walks through ALL inline keyboard menus (up to 3 levels deep), records every button label, message text, and navigation flow. Returns a complete menu tree ready for cloning.
+- \`<crawl_telegram_bot username="@botname" session="SESSION_STRING" />\` — **deep automatic crawl** of the bot using a real Telegram user session. Connects as a real user, sends /start, automatically walks through ALL inline keyboard menus (up to 5 levels deep), records every button label, message text, and navigation flow. **Also automatically scrapes web content from WebView/MiniApp buttons and URL buttons** — returns the full page text so you can recreate the web interface too. Returns a complete menu tree + web content ready for cloning.
 - \`<telegram_auth_start phone="+7XXXXXXXXXX" />\` — start Telegram login: sends a code to the user's phone/Telegram app. Must ask the user for their phone number first. Before calling this, ALWAYS warn: "Ты можешь отменить авторизацию в любой момент, просто напиши 'отмена'."
 - \`<telegram_auth_complete phone="+7XXXXXXXXXX" code="XXXXX" />\` — complete Telegram login with the received code. Returns session string on success. If the user says "отмена" / "cancel" / "отказаться" at any point in the auth flow — immediately stop without calling any tools and reply: "Авторизация отменена. Ничего не сохранено."
 
@@ -112,9 +112,10 @@ After receiving the bot menu structure, you MUST:
 1. **Immediately create ALL files** using <create_file> — do NOT ask questions before building
 2. Build a real working Python bot (python-telegram-bot) with EXACT button texts from crawl result
 3. Match the EXACT menu hierarchy and inline keyboard layouts from the crawl
-4. Create all necessary files: main.py, requirements.txt, .env.example, README.md
-5. After creating all files — write a short summary of what was built
-6. Then use your own judgment: if there are obvious improvements or missing features you noticed during the crawl, briefly suggest them. Otherwise just finish.`;
+4. **If the crawl found WebView/MiniApp content** — also create the web application files (index.html, app.js, style.css) that recreate the web interface
+5. Create all necessary files: main.py, requirements.txt, .env.example, README.md
+6. After creating all files — write a short summary of what was built
+7. Then use your own judgment: if there are obvious improvements or missing features you noticed during the crawl, briefly suggest them. Otherwise just finish.`;
 
 /* ── build a compact file tree ───────────────────────────────────────── */
 async function buildFileTree(dir: string, prefix: string, depth: number): Promise<string> {
@@ -524,16 +525,39 @@ async function crawlTelegramBot(username: string, sessionString: string): Promis
                 data: btn.data,
               }));
             } else if (isWebView || btn.className?.includes("WebView")) {
-              // Mini App / WebApp button — record URL for agent analysis
+              // Mini App / WebApp button — scrape the web page content
+              const webUrl = btn.url || "";
+              let webContent = "";
+              if (webUrl && webUrl.startsWith("https://")) {
+                try {
+                  webContent = await fetchUrlContent(webUrl);
+                } catch (e) {
+                  webContent = `(не удалось загрузить: ${e instanceof Error ? e.message : String(e)})`;
+                }
+              }
               results.push(
-                `### ${pathLabel} → [${btnText}]\n` +
-                `**Тип:** 🌐 MINI APP (WebApp)\n` +
-                `**URL мини-аппа:** ${btn.url || "(URL не доступен через MTProto)"}\n` +
-                `**Важно для клонирования:** это Telegram Mini App — нужно создать отдельное веб-приложение (HTML/JS/CSS) с Telegram WebApp SDK`
+                `### ${pathLabel} -> [${btnText}]\n` +
+                `**Тип:** MINI APP (WebApp)\n` +
+                `**URL мини-аппа:** ${webUrl || "(URL не доступен через MTProto)"}\n` +
+                (webContent ? `**Содержимое веб-страницы:**\n${webContent}` : "") +
+                `\n**Важно для клонирования:** это Telegram Mini App — нужно создать отдельное веб-приложение (HTML/JS/CSS) с Telegram WebApp SDK, которое воспроизводит этот интерфейс`
               );
               continue;
             } else if (btn.className === "KeyboardButtonUrl") {
-              results.push(`### ${pathLabel} → [${btnText}]\n**Тип:** 🔗 URL-кнопка\n**URL:** ${btn.url || ""}`);
+              // URL button — also scrape the page content
+              const urlTarget = btn.url || "";
+              let urlContent = "";
+              if (urlTarget && urlTarget.startsWith("https://") && !urlTarget.includes("t.me/")) {
+                try {
+                  urlContent = await fetchUrlContent(urlTarget);
+                } catch (e) {
+                  urlContent = `(не удалось загрузить: ${e instanceof Error ? e.message : String(e)})`;
+                }
+              }
+              results.push(
+                `### ${pathLabel} -> [${btnText}]\n**Тип:** URL-кнопка\n**URL:** ${urlTarget}` +
+                (urlContent ? `\n**Содержимое страницы:**\n${urlContent}` : "")
+              );
               continue;
             } else {
               await client.sendMessage(entity, { message: btnText });

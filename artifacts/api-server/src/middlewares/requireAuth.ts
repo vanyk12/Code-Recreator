@@ -1,8 +1,9 @@
 import { createHmac, createPublicKey, verify } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
-// ─── Supabase JWT verification (ES256 via JWKS) ──────────────────────
-const hasSupabase = !!process.env.SUPABASE_JWT_SECRET;
+// Supabase auth is active when both URL and anon key are configured
+// (matches the frontend check in /api/auth/config)
+const hasSupabase = !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
 
 // Cache for JWKS public keys
 let jwksCache: { keys: Map<string, string>; fetchedAt: number } | null = null;
@@ -10,7 +11,10 @@ const JWKS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function getJwksPublicKey(kid: string): Promise<string | null> {
   const supabaseUrl = process.env.SUPABASE_URL;
-  if (!supabaseUrl) return null;
+  if (!supabaseUrl) {
+    console.error("[JWKS] SUPABASE_URL not set, cannot fetch JWKS");
+    return null;
+  }
 
   const now = Date.now();
 
@@ -25,16 +29,18 @@ async function getJwksPublicKey(kid: string): Promise<string | null> {
     const baseUrl = supabaseUrl.replace(/\/$/, "");
     const jwksUrl = `${baseUrl}/auth/v1/jwks.json`;
     const headers: Record<string, string> = {};
-    // Supabase requires apikey for JWKS endpoint
     const anonKey = process.env.SUPABASE_ANON_KEY;
     if (anonKey) headers["apikey"] = anonKey;
+    console.log(`[JWKS] Fetching keys from ${jwksUrl}`);
     const res = await fetch(jwksUrl, { headers });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[JWKS] Fetch failed: HTTP ${res.status}`);
+      return null;
+    }
     const jwks = await res.json();
 
     const keys = new Map<string, string>();
     for (const jwk of jwks.keys || []) {
-      // Convert JWK to PEM
       if (jwk.kty === "EC" || jwk.kty === "RSA") {
         const pem = jwkToPem(jwk);
         if (pem) keys.set(jwk.kid, pem);
@@ -42,8 +48,10 @@ async function getJwksPublicKey(kid: string): Promise<string | null> {
     }
 
     jwksCache = { keys, fetchedAt: now };
+    console.log(`[JWKS] Cached ${keys.size} key(s)`);
     return keys.get(kid) || null;
-  } catch {
+  } catch (err) {
+    console.error("[JWKS] Fetch error:", err);
     return null;
   }
 }
@@ -51,43 +59,49 @@ async function getJwksPublicKey(kid: string): Promise<string | null> {
 /** Convert a JWK to PEM format using Node.js crypto */
 function jwkToPem(jwk: Record<string, unknown>): string | null {
   try {
-    // Node.js createPublicKey accepts JWK directly (in object form)
     const publicKey = createPublicKey({ format: "jwk", key: jwk });
     return publicKey.export({ type: "spki", format: "pem" }) as string;
-  } catch {
+  } catch (err) {
+    console.error("[JWKS] jwkToPem error:", err);
     return null;
   }
 }
 
 async function verifySupabaseJWT(token: string): Promise<string | null> {
   const parts = token.split(".");
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3) {
+    console.error("[JWT] Token doesn't have 3 parts");
+    return null;
+  }
 
   try {
-    // Decode header to get algorithm and kid
     const header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf-8"));
     const kid = header.kid;
     const alg = header.alg;
 
-    // Decode payload for expiration/issuer checks
+    console.log(`[JWT] Verifying: alg=${alg}, kid=${kid}`);
+
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
 
-    // Check expiration
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      console.error(`[JWT] Token expired at ${payload.exp}`);
       return null;
     }
 
-    // Check issuer (Supabase project URL)
     if (process.env.SUPABASE_URL && payload.iss) {
-      if (!payload.iss.startsWith(process.env.SUPABASE_URL)) return null;
+      if (!payload.iss.startsWith(process.env.SUPABASE_URL)) {
+        console.error(`[JWT] Issuer mismatch: ${payload.iss}`);
+        return null;
+      }
     }
 
     // ES256/ES384/ES512: verify with public key from JWKS
-    // JWT uses raw r||s signature, but Node.js crypto.verify expects DER by default.
-    // Node 20+ supports dsaEncoding: 'ieee-p1363' for raw format.
     if (alg?.startsWith("ES") && kid) {
       const pem = await getJwksPublicKey(kid);
-      if (!pem) return null;
+      if (!pem) {
+        console.error("[JWT] JWKS public key not found");
+        return null;
+      }
 
       const publicKey = createPublicKey(pem);
       const algMap: Record<string, string> = {
@@ -106,6 +120,7 @@ async function verifySupabaseJWT(token: string): Promise<string | null> {
         { key: publicKey, dsaEncoding: "ieee-p1363" },
         signature,
       );
+      console.log(`[JWT] ES256 result: ${valid ? "OK" : "FAILED"}`);
       return valid ? (payload.sub || null) : null;
     }
 
@@ -122,12 +137,15 @@ async function verifySupabaseJWT(token: string): Promise<string | null> {
         .update(`${parts[0]}.${parts[1]}`)
         .digest("base64url");
 
-      return signature === parts[2] ? (payload.sub || null) : null;
+      const valid = signature === parts[2];
+      console.log(`[JWT] HS256 result: ${valid ? "OK" : "FAILED"}`);
+      return valid ? (payload.sub || null) : null;
     }
 
-    // Unsupported algorithm
+    console.error(`[JWT] Unsupported algorithm: ${alg}`);
     return null;
-  } catch {
+  } catch (err) {
+    console.error("[JWT] Verification error:", err);
     return null;
   }
 }
@@ -198,23 +216,29 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   // 2. Try Supabase JWT (Bearer token)
   const authHeader = req.headers.authorization;
-  if (hasSupabase && authHeader?.startsWith("Bearer ")) {
+  if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
     const userId = await verifySupabaseJWT(token);
     if (userId) {
       (req as Request & { userId: string }).userId = `sb_${userId}`;
       return next();
     }
+    // If hasSupabase and token was provided but invalid -> 401
+    if (hasSupabase) {
+      console.error("[requireAuth] JWT verification failed");
+      res.status(401).json({ error: "Unauthorized: invalid token" });
+      return;
+    }
   }
 
-  // 3. Fallback: no auth configured — use default user
+  // 3. Fallback: no auth configured -> use default user
   if (!hasSupabase) {
     (req as Request & { userId: string }).userId = "railway_default_user";
     return next();
   }
 
-  // 4. Auth is configured but no valid credentials
-  res.status(401).json({ error: "Unauthorized" });
+  // 4. Auth is configured but no token provided
+  res.status(401).json({ error: "Unauthorized: no token" });
 }
 
 export async function getUserId(req: Request): Promise<string | null> {
