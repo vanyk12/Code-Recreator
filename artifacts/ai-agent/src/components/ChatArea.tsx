@@ -584,7 +584,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   const { data: chat } = useGetChat(chatId || 0, {
     query: { enabled: !!chatId, queryKey: getGetChatQueryKey(chatId || 0) }
   });
-  const { streamMessage, isStreaming, streamContent, streamStatus, lastFullContent, cancelStream } = useStreamChat(chatId, onFilesCreated);
+  const { streamMessage, isStreaming, streamContent, streamStatus, streamError, lastFullContent, cancelStream } = useStreamChat(chatId, onFilesCreated);
 
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
@@ -760,6 +760,19 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
             </div>
           );
         })}
+
+        {/* Stream error */}
+        {streamError && !isStreaming && (
+          <div className="flex justify-start">
+            <div className="max-w-[82%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 bg-red-500/8 border border-red-500/20 text-red-400/90 text-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <X size={14} className="text-red-400 shrink-0" />
+                <span className="font-semibold text-red-400">Ошибка</span>
+              </div>
+              <p className="text-red-400/80 text-xs leading-relaxed">{streamError}</p>
+            </div>
+          </div>
+        )}
 
         {/* Streaming message */}
         {isStreaming && (

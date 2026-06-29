@@ -6,6 +6,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState('');
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [lastFullContent, setLastFullContent] = useState<string | null>(null);
   const contentRef = useRef('');
   const abortRef = useRef<AbortController | null>(null);
@@ -34,6 +35,8 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     setLastFullContent(null);
     contentRef.current = '';
 
+    setStreamError(null);
+
     try {
       const response = await fetch(`/api/chats/${chatId}/stream`, {
         method: 'POST',
@@ -47,7 +50,21 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
         })
       });
 
-      if (!response.body) throw new Error('No response body');
+      if (!response.ok) {
+        let errMsg = `Ошибка сервера: ${response.status}`;
+        try { const e = await response.json(); errMsg = e.error || errMsg; } catch {}
+        setStreamError(errMsg);
+        setIsStreaming(false);
+        setStreamStatus(null);
+        return;
+      }
+
+      if (!response.body) {
+        setStreamError('Пустой ответ от сервера');
+        setIsStreaming(false);
+        setStreamStatus(null);
+        return;
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -86,6 +103,8 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
               queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
             } else if (event.type === 'error') {
+              const errMsg = event.content || 'Неизвестная ошибка';
+              setStreamError(errMsg);
               setIsStreaming(false);
               setStreamStatus(null);
               setStreamContent('');
@@ -100,6 +119,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         console.error('Stream error:', err);
+        setStreamError(err.message || 'Ошибка соединения');
       }
       setIsStreaming(false);
       setStreamStatus(null);
@@ -109,5 +129,5 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     }
   }, [chatId, queryClient, onFilesCreated]);
 
-  return { isStreaming, streamContent, streamStatus, streamMessage, lastFullContent, cancelStream };
+  return { isStreaming, streamContent, streamStatus, streamError, streamMessage, lastFullContent, cancelStream };
 }
