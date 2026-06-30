@@ -31,7 +31,7 @@ async function getJwksPublicKey(kid: string): Promise<string | null> {
   // Fetch JWKS from Supabase
   try {
     const baseUrl = supabaseUrl.replace(/\/$/, "");
-    const jwksUrl = `${baseUrl}/auth/v1/jwks.json`;
+    const jwksUrl = `${baseUrl}/auth/v1/.well-known/jwks.json`;
     const headers: Record<string, string> = {};
     const anonKey = process.env.SUPABASE_ANON_KEY;
     if (anonKey) headers["apikey"] = anonKey;
@@ -99,11 +99,22 @@ async function verifySupabaseJWT(token: string): Promise<string | null> {
       }
     }
 
-    // ES256/ES384/ES512: verify with public key from JWKS
+    // ES256/ES384/ES512: verify with public key
     if (alg?.startsWith("ES") && kid) {
-      const pem = await getJwksPublicKey(kid);
+      // 1. Try static public key from env var (SUPABASE_JWT_PUBLIC_KEY)
+      let pem: string | null = null;
+      if (process.env.SUPABASE_JWT_PUBLIC_KEY) {
+        pem = process.env.SUPABASE_JWT_PUBLIC_KEY;
+        console.log("[JWT] Using static SUPABASE_JWT_PUBLIC_KEY");
+      }
+
+      // 2. If no static key, fetch from JWKS
       if (!pem) {
-        console.error("[JWT] JWKS public key not found");
+        pem = await getJwksPublicKey(kid);
+      }
+
+      if (!pem) {
+        console.error("[JWT] No public key available (set SUPABASE_JWT_PUBLIC_KEY or fix JWKS URL)");
         return null;
       }
 
