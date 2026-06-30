@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getListMessagesQueryKey, getListChatsQueryKey } from '@workspace/api-client-react';
 
@@ -23,6 +23,12 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
   const contentRef = useRef('');
   const abortRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
+
+  // Clear unsaved messages when switching chats
+  useEffect(() => {
+    setUnsavedMessages([]);
+    setStreamError(null);
+  }, [chatId]);
 
   const cancelStream = useCallback(() => {
     abortRef.current?.abort();
@@ -49,6 +55,18 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     contentRef.current = '';
 
     setStreamError(null);
+
+    // Optimistically show user message immediately
+    const optimisticUserMsg: UnsavedMessage = {
+      id: Date.now(),
+      chatId,
+      role: 'user',
+      content,
+      tokensUsed: 0,
+      status: 'done',
+      createdAt: new Date().toISOString(),
+    };
+    setUnsavedMessages([optimisticUserMsg]);
 
     try {
       const response = await fetch(`/api/chats/${chatId}/stream`, {
@@ -82,6 +100,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let dbSavedUserMsg = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -114,8 +133,10 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
               setIsStreaming(false);
               setStreamStatus(null);
               setStreamContent('');
+
               if (event.message) {
-                // DB saved it — refetch normally
+                // DB saved both messages — clear unsaved, refetch from DB
+                setUnsavedMessages([]);
                 queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
               } else {
                 // DB failed — keep assistant message visible locally
@@ -150,24 +171,22 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
               setStreamContent('');
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
             } else if (event.type === 'user_message') {
-              if (event.message) {
-                // DB saved it — just refetch
-                queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
-              } else {
-                // DB failed — store locally so UI still shows the message
-                setUnsavedMessages(prev => [...prev, {
-                  id: Date.now(),
-                  chatId: chatId!,
-                  role: 'user' as const,
-                  content,
-                  tokensUsed: 0,
-                  status: 'done',
-                  createdAt: new Date().toISOString(),
-                }]);
+              // If DB saved the user message, clear the optimistic one
+              if (event.message && event.message.id !== 0) {
+                dbSavedUserMsg = true;
               }
             }
           } catch { /* ignore parse errors */ }
         }
+      }
+
+      // After stream ends, if DB never confirmed user message save, keep optimistic
+      if (!dbSavedUserMsg) {
+        // unsavedMessages already has the optimistic user msg, do nothing
+      } else {
+        // DB has it, refetch to get proper message
+        setUnsavedMessages(prev => prev.filter(m => m.role !== 'user'));
+        queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
       }
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {

@@ -1587,8 +1587,8 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
       send({ type: "user_message", message: { ...userMsg, createdAt: userMsg.createdAt.toISOString() } });
     } catch (dbErr: unknown) {
       req.log.error({ err: dbErr, chatId }, "Failed to save user message to DB");
-      // Send a synthetic user_message so frontend stays in sync
-      send({ type: "user_message", message: { id: 0, chatId, role: "user" as const, content, tokensUsed: 0, status: "done" as const, createdAt: new Date().toISOString() } });
+      // Send user_message without message object so frontend knows DB save failed
+      send({ type: "user_message", message: null });
     }
 
     const isDefaultTitle = chat.title === "Новый чат" || chat.title === "New Chat";
