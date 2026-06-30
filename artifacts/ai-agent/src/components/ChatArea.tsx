@@ -584,7 +584,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   const { data: chat } = useGetChat(chatId || 0, {
     query: { enabled: !!chatId, queryKey: getGetChatQueryKey(chatId || 0) }
   });
-  const { streamMessage, isStreaming, streamContent, streamStatus, streamError, lastFullContent, cancelStream } = useStreamChat(chatId, onFilesCreated);
+  const { streamMessage, isStreaming, streamContent, streamStatus, streamError, lastFullContent, cancelStream, unsavedMessages } = useStreamChat(chatId, onFilesCreated);
 
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
@@ -602,7 +602,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamContent]);
+  }, [messages, streamContent, unsavedMessages]);
 
   useEffect(() => {
     if (prevStreamingRef.current && !isStreaming && lastFullContent) {
@@ -719,7 +719,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-        {messages?.length === 0 && !isStreaming && (
+        {messages?.length === 0 && !isStreaming && unsavedMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-4 py-20">
             <OctopusIcon swimming={false} size={56} />
             <p className="text-muted-foreground/30 text-sm">Начните диалог с агентом</p>
@@ -743,6 +743,39 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
                   chatId={msg.role === "assistant" ? chatId : undefined}
                   pendingCmds={msgCmds}
                   onCmdStateChange={(cmd, state, out, code) => handleCmdState(msg.id, cmd, state, out, code)}
+                />
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  {msg.role === "assistant" && msg.tokensUsed > 0 && (
+                    <span className="text-[10px] text-muted-foreground/35 bg-black/15 px-2 py-0.5 rounded-full">
+                      {msg.tokensUsed.toLocaleString("ru")} тк
+                    </span>
+                  )}
+                  {timeStr && (
+                    <span className="text-[10px] text-muted-foreground/30 select-none">
+                      {timeStr}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Unsaved messages (DB save failed — shown from stream cache) */}
+        {unsavedMessages.map((msg, idx) => {
+          const timeStr = msg.createdAt
+            ? new Date(msg.createdAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })
+            : null;
+          return (
+            <div key={`unsaved-${msg.id}`} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[82%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 ${
+                msg.role === "user"
+                  ? "bg-primary/12 border border-primary/15 text-foreground"
+                  : "bg-black/18 border border-white/6 backdrop-blur-sm border-l-2 border-l-accent/50"
+              }`}>
+                <MessageContent
+                  content={msg.content}
+                  chatId={msg.role === "assistant" ? chatId : undefined}
                 />
                 <div className="mt-2 flex items-center justify-end gap-2">
                   {msg.role === "assistant" && msg.tokensUsed > 0 && (

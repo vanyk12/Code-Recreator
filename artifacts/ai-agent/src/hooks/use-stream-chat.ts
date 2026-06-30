@@ -2,12 +2,24 @@ import { useState, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getListMessagesQueryKey, getListChatsQueryKey } from '@workspace/api-client-react';
 
+// Messages that were streamed but not saved to DB (DB schema mismatch, etc.)
+export type UnsavedMessage = {
+  id: number;
+  chatId: number;
+  role: 'user' | 'assistant';
+  content: string;
+  tokensUsed: number;
+  status: string;
+  createdAt: string;
+};
+
 export function useStreamChat(chatId: number | null, onFilesCreated?: () => void) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState('');
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [lastFullContent, setLastFullContent] = useState<string | null>(null);
+  const [unsavedMessages, setUnsavedMessages] = useState<UnsavedMessage[]>([]);
   const contentRef = useRef('');
   const abortRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
@@ -33,6 +45,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     setStreamContent('');
     setStreamStatus('Думаю...');
     setLastFullContent(null);
+    setUnsavedMessages([]);
     contentRef.current = '';
 
     setStreamError(null);
@@ -96,22 +109,62 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
             } else if (event.type === 'files_created') {
               onFilesCreated?.();
             } else if (event.type === 'done') {
-              setLastFullContent(contentRef.current);
+              const finalContent = contentRef.current;
+              setLastFullContent(finalContent);
               setIsStreaming(false);
               setStreamStatus(null);
               setStreamContent('');
-              queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
+              if (event.message) {
+                // DB saved it — refetch normally
+                queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
+              } else {
+                // DB failed — keep assistant message visible locally
+                setUnsavedMessages(prev => [...prev, {
+                  id: Date.now() + 1,
+                  chatId: chatId!,
+                  role: 'assistant' as const,
+                  content: finalContent,
+                  tokensUsed: event.tokens || 0,
+                  status: 'done',
+                  createdAt: new Date().toISOString(),
+                }]);
+              }
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
             } else if (event.type === 'error') {
               const errMsg = event.content || 'Неизвестная ошибка';
               setStreamError(errMsg);
               setIsStreaming(false);
               setStreamStatus(null);
+              // Keep partial content visible if we have any
+              if (contentRef.current) {
+                setUnsavedMessages(prev => [...prev, {
+                  id: Date.now() + 1,
+                  chatId: chatId!,
+                  role: 'assistant' as const,
+                  content: contentRef.current,
+                  tokensUsed: 0,
+                  status: 'error',
+                  createdAt: new Date().toISOString(),
+                }]);
+              }
               setStreamContent('');
-              queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
             } else if (event.type === 'user_message') {
-              queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
+              if (event.message) {
+                // DB saved it — just refetch
+                queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
+              } else {
+                // DB failed — store locally so UI still shows the message
+                setUnsavedMessages(prev => [...prev, {
+                  id: Date.now(),
+                  chatId: chatId!,
+                  role: 'user' as const,
+                  content,
+                  tokensUsed: 0,
+                  status: 'done',
+                  createdAt: new Date().toISOString(),
+                }]);
+              }
             }
           } catch { /* ignore parse errors */ }
         }
@@ -129,5 +182,5 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     }
   }, [chatId, queryClient, onFilesCreated]);
 
-  return { isStreaming, streamContent, streamStatus, streamError, streamMessage, lastFullContent, cancelStream };
+  return { isStreaming, streamContent, streamStatus, streamError, streamMessage, lastFullContent, cancelStream, unsavedMessages };
 }
