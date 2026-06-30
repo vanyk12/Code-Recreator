@@ -1576,14 +1576,20 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
       return;
     }
 
-    const [userMsg] = await db.insert(messagesTable).values({
-      chatId,
-      role: "user",
-      content,
-      tokensUsed: estimateTokens(content),
-    }).returning();
-
-    send({ type: "user_message", message: { ...userMsg, createdAt: userMsg.createdAt.toISOString() } });
+    // Save user message to DB (non-blocking — don't break stream if DB is out of sync)
+    try {
+      const [userMsg] = await db.insert(messagesTable).values({
+        chatId,
+        role: "user",
+        content,
+        tokensUsed: estimateTokens(content),
+      }).returning();
+      send({ type: "user_message", message: { ...userMsg, createdAt: userMsg.createdAt.toISOString() } });
+    } catch (dbErr: unknown) {
+      req.log.error({ err: dbErr, chatId }, "Failed to save user message to DB");
+      // Send a synthetic user_message so frontend stays in sync
+      send({ type: "user_message", message: { id: 0, chatId, role: "user" as const, content, tokensUsed: 0, status: "done" as const, createdAt: new Date().toISOString() } });
+    }
 
     const isDefaultTitle = chat.title === "Новый чат" || chat.title === "New Chat";
     if (isDefaultTitle && apiKey) {
@@ -1600,23 +1606,38 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
 
     if (!apiKey) {
       const errContent = "Токен OpenRouter API не настроен. Пожалуйста, добавь ключ в Настройках (кнопка внизу боковой панели).";
-      const [assistantMsg] = await db.insert(messagesTable).values({
-        chatId, role: "assistant", content: errContent, tokensUsed: 0, status: "error",
-      }).returning();
+      try {
+        const [assistantMsg] = await db.insert(messagesTable).values({
+          chatId, role: "assistant", content: errContent, tokensUsed: 0, status: "error",
+        }).returning();
+        send({ type: "done", tokens: 0, message: { ...assistantMsg, createdAt: assistantMsg.createdAt.toISOString() } });
+      } catch {
+        send({ type: "done", tokens: 0, message: null });
+      }
       send({ type: "chunk", content: errContent });
-      send({ type: "done", tokens: 0, message: { ...assistantMsg, createdAt: assistantMsg.createdAt.toISOString() } });
       res.end();
       return;
     }
 
     send({ type: "status", status: "Думаю..." });
 
-    const history = await db.select().from(messagesTable)
-      .where(eq(messagesTable.chatId, chatId))
-      .orderBy(messagesTable.createdAt);
+    // Fetch chat history — if DB schema is broken, continue without history
+    let history: any[] = [];
+    try {
+      history = await db.select().from(messagesTable)
+        .where(eq(messagesTable.chatId, chatId))
+        .orderBy(messagesTable.createdAt);
+    } catch (dbErr) {
+      req.log.error({ err: dbErr, chatId }, "Failed to load chat history from DB");
+    }
 
-    const modelRow = await db.select().from(settingsTable).where(eq(settingsTable.key, "default_model"));
-    const activeModel = modelRow[0]?.value || "anthropic/claude-3.5-sonnet";
+    let activeModel = "anthropic/claude-3.5-sonnet";
+    try {
+      const modelRow = await db.select().from(settingsTable).where(eq(settingsTable.key, "default_model"));
+      activeModel = modelRow[0]?.value || activeModel;
+    } catch (dbErr) {
+      req.log.error({ err: dbErr }, "Failed to load model setting");
+    }
 
     if (chat.model !== activeModel) {
       await db.update(chatsTable).set({ model: activeModel }).where(eq(chatsTable.id, chatId));
@@ -1764,9 +1785,13 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
     if (hasTools) {
       for (const s of statusMessages) send({ type: "status", status: s });
 
-      await db.insert(messagesTable).values({
-        chatId, role: "assistant", content: fullContent, tokensUsed: tokenCount, status: "done",
-      });
+      try {
+        await db.insert(messagesTable).values({
+          chatId, role: "assistant", content: fullContent, tokensUsed: tokenCount, status: "done",
+        });
+      } catch (dbErr) {
+        req.log.error({ err: dbErr, chatId }, "Failed to save assistant message (tool round)");
+      }
 
       send({ type: "status", status: "Обрабатываю результаты..." });
 
@@ -1901,17 +1926,31 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
       send({ type: "files_created", files: createdFiles });
     }
 
-    const [assistantMsg] = await db.insert(messagesTable).values({
-      chatId, role: "assistant", content: fullContent, tokensUsed: tokenCount, status: "done",
-    }).returning();
+    let savedMsg: any = null;
+    try {
+      [savedMsg] = await db.insert(messagesTable).values({
+        chatId, role: "assistant", content: fullContent, tokensUsed: tokenCount, status: "done",
+      }).returning();
+    } catch (dbErr) {
+      req.log.error({ err: dbErr, chatId }, "Failed to save assistant message (final)");
+    }
 
-    await db.update(chatsTable).set({ updatedAt: new Date() }).where(eq(chatsTable.id, chatId));
+    try {
+      await db.update(chatsTable).set({ updatedAt: new Date() }).where(eq(chatsTable.id, chatId));
+    } catch (dbErr) {
+      req.log.error({ err: dbErr, chatId }, "Failed to update chat timestamp");
+    }
 
-    send({ type: "done", tokens: tokenCount, message: { ...assistantMsg, createdAt: assistantMsg.createdAt.toISOString() } });
+    send({ type: "done", tokens: tokenCount, message: savedMsg ? { ...savedMsg, createdAt: savedMsg.createdAt.toISOString() } : null });
     res.end();
   } catch (err: unknown) {
     req.log.error(err);
-    send({ type: "error", content: err instanceof Error ? err.message : "Ошибка стриминга" });
+    // Never expose raw SQL / DB internals to the client
+    const msg = err instanceof Error ? err.message : "Ошибка стриминга";
+    const clean = msg.includes("Failed query") || msg.includes("insert into") || msg.includes("select from")
+      ? "Ошибка сохранения в базу данных. Проверьте схему таблиц (запустите drizzle-kit push)."
+      : msg;
+    send({ type: "error", content: clean });
     res.end();
   }
 });
