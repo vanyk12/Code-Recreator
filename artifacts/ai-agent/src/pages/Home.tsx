@@ -1,22 +1,31 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useListChats } from "@workspace/api-client-react";
 import { ChatArea } from "@/components/ChatArea";
 import { Sidebar } from "@/components/Sidebar";
+import { RightPanel } from "@/components/RightPanel";
 import { useAuth, useTheme } from "@/App";
 import { getSupabaseState } from "@/lib/supabase";
 import { Sun, Moon, Bot, MessageSquare, Wrench, Search } from "lucide-react";
 
 export function Home() {
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
+  const [fileRefreshKey, setFileRefreshKey] = useState(0);
   const { data: chats } = useListChats();
   const { user } = useAuth();
   const { theme, toggle } = useTheme();
+
+  const handleFilesCreated = useCallback(() => {
+    setFileRefreshKey(k => k + 1);
+  }, []);
 
   return (
     <div className="flex h-[100dvh] overflow-hidden">
       <Sidebar activeChatId={activeChatId} onSelectChat={setActiveChatId} />
       {activeChatId ? (
-        <ChatArea chatId={activeChatId} />
+        <>
+          <ChatArea chatId={activeChatId} onFilesCreated={handleFilesCreated} />
+          <RightPanel chatId={activeChatId} fileRefreshKey={fileRefreshKey} />
+        </>
       ) : (
         <div className="flex-1 flex items-center justify-center" style={{ background: "hsl(222 47% 8%)" }}>
           <div className="text-center max-w-lg px-6">

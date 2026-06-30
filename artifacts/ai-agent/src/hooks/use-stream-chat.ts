@@ -72,7 +72,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     contentRef.current = '';
     setStreamError(null);
 
-    // Optimistically show user message immediately
+    // Optimistically show user message immediately (keep previous unsaved messages)
     const optimisticUserMsg: UnsavedMessage = {
       id: Date.now(),
       chatId,
@@ -82,8 +82,11 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
       status: 'done',
       createdAt: new Date().toISOString(),
     };
-    setUnsavedMessages([optimisticUserMsg]);
-    saveToCache([optimisticUserMsg]);
+    setUnsavedMessages(prev => {
+      const next = [...prev, optimisticUserMsg];
+      saveToCache(next);
+      return next;
+    });
 
     try {
       const response = await fetch(`/api/chats/${chatId}/stream`, {
