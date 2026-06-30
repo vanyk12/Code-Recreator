@@ -13,6 +13,9 @@ export type UnsavedMessage = {
   createdAt: string;
 };
 
+// Global cache: chatId → unsaved messages (survives chat switches within the session)
+const unsavedCache = new Map<number, UnsavedMessage[]>();
+
 export function useStreamChat(chatId: number | null, onFilesCreated?: () => void) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState('');
@@ -24,10 +27,25 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
   const abortRef = useRef<AbortController | null>(null);
   const queryClient = useQueryClient();
 
-  // Clear unsaved messages when switching chats
+  // When switching chats, load this chat's unsaved messages from cache
   useEffect(() => {
-    setUnsavedMessages([]);
+    if (chatId) {
+      setUnsavedMessages(unsavedCache.get(chatId) || []);
+    } else {
+      setUnsavedMessages([]);
+    }
     setStreamError(null);
+  }, [chatId]);
+
+  // Helper: persist current unsaved messages to cache for this chatId
+  const saveToCache = useCallback((msgs: UnsavedMessage[]) => {
+    if (chatId) {
+      if (msgs.length === 0) {
+        unsavedCache.delete(chatId);
+      } else {
+        unsavedCache.set(chatId, msgs);
+      }
+    }
   }, [chatId]);
 
   const cancelStream = useCallback(() => {
@@ -51,9 +69,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     setStreamContent('');
     setStreamStatus('Думаю...');
     setLastFullContent(null);
-    setUnsavedMessages([]);
     contentRef.current = '';
-
     setStreamError(null);
 
     // Optimistically show user message immediately
@@ -67,6 +83,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
       createdAt: new Date().toISOString(),
     };
     setUnsavedMessages([optimisticUserMsg]);
+    saveToCache([optimisticUserMsg]);
 
     try {
       const response = await fetch(`/api/chats/${chatId}/stream`, {
@@ -135,20 +152,26 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
               setStreamContent('');
 
               if (event.message) {
-                // DB saved both messages — clear unsaved, refetch from DB
-                setUnsavedMessages([]);
+                // DB saved — clear unsaved for this chat, refetch
+                const cleared: UnsavedMessage[] = [];
+                setUnsavedMessages(cleared);
+                saveToCache(cleared);
                 queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
               } else {
-                // DB failed — keep assistant message visible locally
-                setUnsavedMessages(prev => [...prev, {
-                  id: Date.now() + 1,
-                  chatId: chatId!,
-                  role: 'assistant' as const,
-                  content: finalContent,
-                  tokensUsed: event.tokens || 0,
-                  status: 'done',
-                  createdAt: new Date().toISOString(),
-                }]);
+                // DB failed — keep both messages locally
+                setUnsavedMessages(prev => {
+                  const next = [...prev, {
+                    id: Date.now() + 1,
+                    chatId: chatId!,
+                    role: 'assistant' as const,
+                    content: finalContent,
+                    tokensUsed: event.tokens || 0,
+                    status: 'done',
+                    createdAt: new Date().toISOString(),
+                  }];
+                  saveToCache(next);
+                  return next;
+                });
               }
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
             } else if (event.type === 'error') {
@@ -156,22 +179,24 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
               setStreamError(errMsg);
               setIsStreaming(false);
               setStreamStatus(null);
-              // Keep partial content visible if we have any
               if (contentRef.current) {
-                setUnsavedMessages(prev => [...prev, {
-                  id: Date.now() + 1,
-                  chatId: chatId!,
-                  role: 'assistant' as const,
-                  content: contentRef.current,
-                  tokensUsed: 0,
-                  status: 'error',
-                  createdAt: new Date().toISOString(),
-                }]);
+                setUnsavedMessages(prev => {
+                  const next = [...prev, {
+                    id: Date.now() + 1,
+                    chatId: chatId!,
+                    role: 'assistant' as const,
+                    content: contentRef.current,
+                    tokensUsed: 0,
+                    status: 'error',
+                    createdAt: new Date().toISOString(),
+                  }];
+                  saveToCache(next);
+                  return next;
+                });
               }
               setStreamContent('');
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
             } else if (event.type === 'user_message') {
-              // If DB saved the user message, clear the optimistic one
               if (event.message && event.message.id !== 0) {
                 dbSavedUserMsg = true;
               }
@@ -180,12 +205,14 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
         }
       }
 
-      // After stream ends, if DB never confirmed user message save, keep optimistic
-      if (!dbSavedUserMsg) {
-        // unsavedMessages already has the optimistic user msg, do nothing
-      } else {
-        // DB has it, refetch to get proper message
-        setUnsavedMessages(prev => prev.filter(m => m.role !== 'user'));
+      // After stream ends
+      if (dbSavedUserMsg) {
+        // DB has the user message, remove optimistic version
+        setUnsavedMessages(prev => {
+          const next = prev.filter(m => m.role !== 'user');
+          saveToCache(next);
+          return next;
+        });
         queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
       }
     } catch (err) {
@@ -199,7 +226,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     } finally {
       abortRef.current = null;
     }
-  }, [chatId, queryClient, onFilesCreated]);
+  }, [chatId, queryClient, onFilesCreated, saveToCache]);
 
   return { isStreaming, streamContent, streamStatus, streamError, streamMessage, lastFullContent, cancelStream, unsavedMessages };
 }
