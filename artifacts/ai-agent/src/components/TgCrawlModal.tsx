@@ -42,13 +42,18 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
   const [nodesFound, setNodesFound] = useState(0);
   const [currentDepth, setCurrentDepth] = useState(0);
 
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const jobIdRef = useRef<string>("");
+  // ref на текущий SSE reader — нужен чтобы продолжить чтение после ввода кода
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const decoderRef = useRef(new TextDecoder());
+  const bufferRef = useRef("");
+  const jobIdRef = useRef("");
+  const abortRef = useRef<AbortController | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
+      abortRef.current?.abort();
+      readerRef.current?.cancel().catch(() => {});
     };
   }, []);
 
@@ -56,6 +61,17 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
   useEffect(() => {
     if (!open) return;
     setStep("checking");
+    setBotUsername("");
+    setCode("");
+    setPassword("");
+    setProgress("");
+    setError("");
+    setNodesFound(0);
+    setCurrentDepth(0);
+    setProgressDetail("");
+    readerRef.current = null;
+    bufferRef.current = "";
+
     fetch("/api/tg-crawl/check-settings")
       .then(r => r.json())
       .then((data: { configured: boolean; hasSession: boolean; hasPhone: boolean }) => {
@@ -71,24 +87,112 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
       .catch(() => setStep("form"));
   }, [open]);
 
-  const startCrawl = useCallback((phoneNum: string, codeVal?: string, passVal?: string) => {
+  // Обработчик SSE-событий (переиспользуется после ввода кода)
+  const handleSSEMessage = useCallback((event: string, msg: Record<string, unknown>) => {
+    if (event === "job") {
+      // Сохраняем jobId для отправки кода
+      jobIdRef.current = (msg.jobId as string) || "";
+      return;
+    }
+
+    if (event === "progress") {
+      setProgress((msg.message as string) || "");
+      if (msg.current) setNodesFound(msg.current as number);
+      if (msg.depth !== undefined) setCurrentDepth(msg.depth as number);
+      if (msg.step) setProgressDetail(msg.step as string);
+
+      // НЕ прерываем чтение! Просто обновляем UI — шаг "code" покажется после
+      if (msg.needs_input === "code") {
+        setStep("code");
+      } else if (msg.needs_input === "password") {
+        setStep("password");
+      }
+      return;
+    }
+
+    if (event === "needs_code") {
+      setStep("code");
+      return;
+    }
+
+    if (event === "needs_password") {
+      setStep("password");
+      return;
+    }
+
+    if (event === "error") {
+      setError((msg.message as string) || "Неизвестная ошибка");
+      setStep("error");
+      return;
+    }
+
+    if (event === "done") {
+      setStep("done");
+      const data = msg.data as CrawlResult | undefined;
+      setProgress(`Обход завершён! Найдено узлов: ${data?.total_nodes || 0}`);
+      if (data) {
+        onCrawlComplete(data, botUsername.trim());
+      }
+      return;
+    }
+  }, [botUsername, onCrawlComplete]);
+
+  // Чтение SSE-стрима (вызывается один раз, продолжается после ввода кода)
+  const readSSELoop = useCallback((reader: ReadableStreamDefaultReader<Uint8Array>) => {
+    reader.read().then(({ done, value }) => {
+      if (done) return;
+
+      bufferRef.current += decoderRef.current.decode(value, { stream: true });
+
+      // Парсим SSE
+      const parts = bufferRef.current.split("\n\n");
+      bufferRef.current = parts.pop() || "";
+
+      for (const part of parts) {
+        const lines = part.split("\n");
+        let event = "message";
+        let data = "";
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) event = line.slice(7).trim();
+          if (line.startsWith("data: ")) data = line.slice(6);
+        }
+
+        try {
+          const msg = JSON.parse(data);
+          handleSSEMessage(event, msg);
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      // Продолжаем читать ( НЕ прерываем цикл при needs_code )
+      readSSELoop(reader);
+    }).catch(() => {
+      // connection closed
+    });
+  }, [handleSSEMessage]);
+
+  const startCrawl = useCallback((phoneNum: string) => {
     setStep("crawling");
     setProgress("Запускаю краулер...");
     setError("");
+    bufferRef.current = "";
+    jobIdRef.current = "";
+
+    abortRef.current = new AbortController();
 
     const body: Record<string, unknown> = {
       botUsername: botUsername.trim(),
       phone: phoneNum || undefined,
       maxDepth: 3,
     };
-    if (codeVal) body.code = codeVal;
-    if (passVal) body.password = passVal;
 
-    // Используем fetch + ReadableStream для SSE (EventSource не поддерживает POST)
     fetch("/api/tg-crawl/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: abortRef.current.signal,
     }).then(response => {
       if (!response.ok) {
         return response.json().then((err: { error?: string; needsSettings?: boolean; needsPhone?: boolean }) => {
@@ -101,87 +205,102 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
       const reader = response.body?.getReader();
       if (!reader) throw new Error("Нет response body");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
+      readerRef.current = reader;
+      readSSELoop(reader);
+    }).catch(err => {
+      if (err.name !== "AbortError") {
+        setError(err.message);
+        setStep("error");
+      }
+    });
+  }, [botUsername, readSSELoop]);
 
-      function read() {
-        reader.read().then(({ done, value }) => {
-          if (done) return;
-          buffer += decoder.decode(value, { stream: true });
+  const handleSubmitCode = useCallback(async () => {
+    if (!code.trim() || !jobIdRef.current) return;
 
-          // Парсим SSE
-          const parts = buffer.split("\n\n");
-          buffer = parts.pop() || "";
-
-          for (const part of parts) {
-            const lines = part.split("\n");
-            let event = "message";
-            let data = "";
-
-            for (const line of lines) {
-              if (line.startsWith("event: ")) event = line.slice(7).trim();
-              if (line.startsWith("data: ")) data = line.slice(6);
-            }
-
-            try {
-              const msg = JSON.parse(data);
-
-              if (event === "progress") {
-                setProgress(msg.message || "");
-                if (msg.current) setNodesFound(msg.current);
-                if (msg.depth !== undefined) setCurrentDepth(msg.depth);
-                if (msg.step) setProgressDetail(msg.step);
-              } else if (event === "needs_code") {
-                setStep("code");
-                // Сохраняем event source для отправки кода
-                return;
-              } else if (event === "needs_password") {
-                setStep("password");
-                return;
-              } else if (event === "error") {
-                setError(msg.message || "Неизвестная ошибка");
-                setStep("error");
-                return;
-              } else if (event === "done") {
-                setStep("done");
-                setProgress(`Обход завершён! Найдено узлов: ${msg.data?.total_nodes || 0}`);
-                if (msg.data) {
-                  onCrawlComplete(msg.data as CrawlResult, botUsername.trim());
-                }
-                return;
-              }
-            } catch {
-              // ignore parse errors
-            }
-          }
-
-          read();
-        }).catch(() => {});
+    // Отправляем код в СУЩЕСТВУЮЩИЙ процесс через отдельный endpoint
+    // SSE-соединение остаётся открытым и продолжит получать события
+    try {
+      const { client: sb } = await import("@/lib/supabase").then(m => m.getSupabaseState());
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (sb) {
+        const { data: { session: s } } = await sb.auth.getSession();
+        if (s?.access_token) headers["Authorization"] = `Bearer ${s.access_token}`;
       }
 
-      read();
-    }).catch(err => {
-      setError(err.message);
+      const res = await fetch("/api/tg-crawl/send-input", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jobId: jobIdRef.current, input: code.trim() }),
+      });
+
+      if (!res.ok) {
+        setError("Не удалось отправить код");
+        setStep("error");
+      } else {
+        // Код отправлен — возвращаемся к шагу crawling, SSE продолжит получать события
+        setStep("crawling");
+        setProgress("Код принят, продолжаю...");
+      }
+    } catch {
+      setError("Ошибка отправки кода");
       setStep("error");
-    });
-  }, [botUsername, onCrawlComplete]);
+    }
+  }, [code]);
 
-  const handleSubmitCode = () => {
-    if (!code.trim()) return;
-    // Перезапускаем с кодом
-    startCrawl(phone, code.trim());
-  };
+  const handleSubmitPassword = useCallback(async () => {
+    if (!password.trim() || !jobIdRef.current) return;
 
-  const handleSubmitPassword = () => {
-    if (!password.trim()) return;
-    startCrawl(phone, undefined, password.trim());
-  };
+    try {
+      const { client: sb } = await import("@/lib/supabase").then(m => m.getSupabaseState());
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (sb) {
+        const { data: { session: s } } = await sb.auth.getSession();
+        if (s?.access_token) headers["Authorization"] = `Bearer ${s.access_token}`;
+      }
 
-  const handleStop = () => {
-    eventSourceRef.current?.close();
+      const res = await fetch("/api/tg-crawl/send-input", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jobId: jobIdRef.current, input: password.trim() }),
+      });
+
+      if (!res.ok) {
+        setError("Не удалось отправить пароль");
+        setStep("error");
+      } else {
+        setStep("crawling");
+        setProgress("Пароль принят, продолжаю...");
+      }
+    } catch {
+      setError("Ошибка отправки пароля");
+      setStep("error");
+    }
+  }, [password]);
+
+  const handleStop = useCallback(async () => {
+    // Останавливаем процесс через API
+    if (jobIdRef.current) {
+      try {
+        const { client: sb } = await import("@/lib/supabase").then(m => m.getSupabaseState());
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (sb) {
+          const { data: { session: s } } = await sb.auth.getSession();
+          if (s?.access_token) headers["Authorization"] = `Bearer ${s.access_token}`;
+        }
+        await fetch("/api/tg-crawl/stop", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ jobId: jobIdRef.current }),
+        });
+      } catch {}
+    }
+    abortRef.current?.abort();
+    readerRef.current?.cancel().catch(() => {});
+    readerRef.current = null;
     setStep("form");
     setProgress("");
-  };
+  }, []);
 
   if (!open) return null;
 
@@ -205,7 +324,7 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
                   <p className="text-xs text-white/60">Telegram Bot Crawler</p>
                 </div>
               </div>
-              <button onClick={onClose} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
+              <button onClick={handleStop} className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
                 <X size={16} />
               </button>
             </div>
@@ -268,7 +387,7 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
 
                 <button
                   onClick={() => startCrawl(phone)}
-                  disabled={!botUsername.trim() || needsSettings}
+                  disabled={!botUsername.trim() || needsSettings || step === "checking"}
                   className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-semibold text-sm text-white transition-all disabled:opacity-40"
                   style={{ background: "linear-gradient(135deg, hsl(25 95% 48%), hsl(213 94% 55%))" }}
                 >
@@ -279,16 +398,17 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
               </>
             )}
 
-            {/* Ввод кода */}
+            {/* Ввод кода — SSE продолжает работать в фоне */}
             {step === "code" && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm text-blue-400">
-                  <Hash size={14} /> Telegram отправил код на {phone}
+                  <Hash size={14} /> Telegram отправил код на ваш номер
                 </div>
                 <input
                   type="text"
                   value={code}
                   onChange={e => setCode(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleSubmitCode(); }}
                   placeholder="Код из Telegram"
                   className="w-full bg-input border border-border rounded-xl px-4 py-3 text-center text-lg font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 tracking-[0.3em]"
                   autoFocus
@@ -301,6 +421,9 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
                 >
                   Подтвердить
                 </button>
+                <p className="text-[10px] text-muted-foreground/50 text-center">
+                  Код отправится в текущий процесс — парсинг продолжится автоматически
+                </p>
               </div>
             )}
 
@@ -314,6 +437,7 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
                   type="password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleSubmitPassword(); }}
                   placeholder="Пароль 2FA"
                   className="w-full bg-input border border-border rounded-xl px-4 py-3 text-center text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-yellow-400 focus:border-yellow-400"
                   autoFocus
@@ -351,8 +475,8 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
                 {/* Анимация шагов */}
                 <div className="space-y-2">
                   {[
-                    { label: "Авторизация", done: progressDetail !== "auth", active: progressDetail === "auth" },
-                    { label: "Поиск бота", done: progressDetail === "bot_info" && !progress.includes("Ищу"), active: progressDetail === "bot_info" },
+                    { label: "Авторизация", done: ["bot_info", "crawling"].includes(progressDetail), active: progressDetail === "auth" },
+                    { label: "Поиск бота", done: progressDetail === "crawling", active: progressDetail === "bot_info" },
                     { label: "Обход меню", done: false, active: progressDetail === "crawling" },
                   ].map((s, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">

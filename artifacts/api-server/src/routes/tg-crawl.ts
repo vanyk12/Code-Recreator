@@ -7,26 +7,25 @@ import path from "path";
 
 const router = Router();
 
-// Храним активные процессы (для отмены)
-const activeProcesses = new Map<string, ReturnType<typeof spawn>>();
+// Храним активные процессы: jobId → { proc, res }
+interface ActiveJob {
+  proc: ReturnType<typeof spawn>;
+  res: import("express").Response;
+}
+const activeJobs = new Map<string, ActiveJob>();
 
 /**
  * POST /api/tg-crawl/start
  * Запускает парсинг TG-бота, возвращает SSE-стрим с прогрессом.
  *
- * Body: { botUsername: string, phone?: string, maxDepth?: number, code?: string, password?: string }
- *
- * Если сессия уже существует (файл .session) — авторизация автоматическая.
- * Если первой авторизации — needs_code / needs_password в SSE.
- * Тогда фронтенд должен отправить код через /api/tg-crawl/send-input
+ * Первое SSE-событие всегда: { event: "job", data: { jobId } }
+ * Фронтенд использует jobId для отправки кода/пароля через /api/tg-crawl/send-input
  */
 router.post("/tg-crawl/start", requireAuth, async (req, res) => {
-  const { botUsername, phone, maxDepth = 3, code, password } = req.body as {
+  const { botUsername, phone, maxDepth = 3 } = req.body as {
     botUsername?: string;
     phone?: string;
     maxDepth?: number;
-    code?: string;
-    password?: string;
   };
 
   if (!botUsername?.trim()) {
@@ -47,13 +46,11 @@ router.post("/tg-crawl/start", requireAuth, async (req, res) => {
     }
     apiId = settingsMap.telegram_api_id || "";
     apiHash = settingsMap.telegram_api_hash || "";
-
-    // Если телефон не передан — пробуем из настроек
     if (!userPhone) {
       userPhone = settingsMap.telegram_phone || "";
     }
   } catch {
-    // настройки недоступны — продолжаем с пустыми
+    // настройки недоступны
   }
 
   if (!apiId || !apiHash) {
@@ -76,10 +73,14 @@ router.post("/tg-crawl/start", requireAuth, async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // отключаем буферизацию nginx
   res.flushHeaders?.();
 
   const jobId = `crawl_${Date.now()}`;
   const sessionDir = "/tmp/tg_sessions";
+
+  // Отправляем jobId первым событием
+  res.write(`event: job\ndata: ${JSON.stringify({ jobId })}\n\n`);
 
   // Путь к Python crawler
   const crawlerScript = path.resolve(process.cwd(), "scripts/tg_crawler.py");
@@ -108,23 +109,15 @@ router.post("/tg-crawl/start", requireAuth, async (req, res) => {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  activeProcesses.set(jobId, proc);
-
-  // Если передан код или пароль — отправляем в stdin
-  if (code) {
-    proc.stdin?.write(code + "\n");
-  } else if (password) {
-    proc.stdin?.write(password + "\n");
-  }
+  activeJobs.set(jobId, { proc, res });
 
   let resultData: unknown = null;
   let buffer = "";
 
   proc.stdout?.on("data", (chunk: Buffer) => {
     buffer += chunk.toString("utf-8");
-    // Парсим JSON строки
     const lines = buffer.split("\n");
-    buffer = lines.pop() || ""; // неполная строка остаётся в буфере
+    buffer = lines.pop() || "";
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -133,7 +126,6 @@ router.post("/tg-crawl/start", requireAuth, async (req, res) => {
         const msg = JSON.parse(trimmed);
         if (msg.type === "progress") {
           sendSSE("progress", msg);
-          // Если скрипт просит код или пароль — отправляем событие
           if (msg.needs_input === "code") {
             sendSSE("needs_code", { message: msg.message });
           } else if (msg.needs_input === "password") {
@@ -145,7 +137,7 @@ router.post("/tg-crawl/start", requireAuth, async (req, res) => {
           sendSSE("error", { message: msg.message });
         }
       } catch {
-        // не JSON — игнорируем (может быть warning от Python)
+        // не JSON —可能是 Python warning
       }
     }
   });
@@ -157,36 +149,34 @@ router.post("/tg-crawl/start", requireAuth, async (req, res) => {
     }
   });
 
-  proc.on("close", (code) => {
-    activeProcesses.delete(jobId);
-    if (code === 0 && resultData) {
+  proc.on("close", (exitCode) => {
+    activeJobs.delete(jobId);
+    if (exitCode === 0 && resultData) {
       sendSSE("done", { data: resultData });
     } else if (!resultData) {
-      sendSSE("error", { message: "Краулер завершился без результата" });
+      sendSSE("error", { message: "Краулер завершился без результата (код: " + exitCode + ")" });
     }
-    res.end();
+    try { res.end(); } catch {}
   });
 
   proc.on("error", (err) => {
-    activeProcesses.delete(jobId);
+    activeJobs.delete(jobId);
     sendSSE("error", { message: `Ошибка запуска: ${err.message}` });
-    res.end();
+    try { res.end(); } catch {}
   });
 
   // Если клиент отключается — убиваем процесс
   req.on("close", () => {
-    if (activeProcesses.has(jobId)) {
+    if (activeJobs.has(jobId)) {
       proc.kill("SIGTERM");
-      activeProcesses.delete(jobId);
+      activeJobs.delete(jobId);
     }
   });
 });
 
 /**
  * POST /api/tg-crawl/send-input
- * Отправить код/пароль в stdin активного процесса.
- *
- * Body: { jobId: string, input: string }
+ * Отправить код/пароль в stdin активного процесса (тот же SSE-соединение остаётся открытым).
  */
 router.post("/tg-crawl/send-input", requireAuth, async (req, res) => {
   const { jobId, input } = req.body as { jobId?: string; input?: string };
@@ -196,13 +186,13 @@ router.post("/tg-crawl/send-input", requireAuth, async (req, res) => {
     return;
   }
 
-  const proc = activeProcesses.get(jobId);
-  if (!proc || !proc.stdin) {
+  const job = activeJobs.get(jobId);
+  if (!job || !job.proc.stdin) {
     res.status(404).json({ error: "Процесс не найден или завершён" });
     return;
   }
 
-  proc.stdin.write(input.trim() + "\n");
+  job.proc.stdin.write(input.trim() + "\n");
   res.json({ success: true });
 });
 
@@ -218,14 +208,15 @@ router.post("/tg-crawl/stop", requireAuth, async (req, res) => {
     return;
   }
 
-  const proc = activeProcesses.get(jobId);
-  if (!proc) {
+  const job = activeJobs.get(jobId);
+  if (!job) {
     res.json({ success: true, message: "Процесс уже завершён" });
     return;
   }
 
-  proc.kill("SIGTERM");
-  activeProcesses.delete(jobId);
+  job.proc.kill("SIGTERM");
+  activeJobs.delete(jobId);
+  try { job.res.end(); } catch {}
   res.json({ success: true });
 });
 
