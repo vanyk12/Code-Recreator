@@ -6,6 +6,7 @@ import { RightPanel } from "@/components/RightPanel";
 import { TgCrawlModal } from "@/components/TgCrawlModal";
 import { useAuth, useTheme } from "@/App";
 import { getSupabaseState } from "@/lib/supabase";
+import { AUTH_ENABLED } from "@/lib/auth";
 import { Bot, MessageSquare, Wrench, Search } from "lucide-react";
 
 interface CrawlResult {
@@ -26,7 +27,10 @@ export function Home() {
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
   const [crawlModalOpen, setCrawlModalOpen] = useState(false);
-  const { data: chats } = useListChats();
+  const { loading: authLoading } = useAuth();
+  const { data: chats } = useListChats({
+    query: { enabled: !AUTH_ENABLED || !authLoading },
+  });
   const { user } = useAuth();
   const { theme, toggle } = useTheme();
 

@@ -10,7 +10,10 @@ import { useTheme, useAuth } from "@/App";
 import { getUnsavedTokensForChat } from "@/hooks/use-stream-chat";
 
 export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number | null; onSelectChat: (id: number | null) => void }) {
-  const { data: chats } = useListChats();
+  const { loading: authLoading } = useAuth();
+  const { data: chats } = useListChats({
+    query: { enabled: !AUTH_ENABLED || !authLoading },
+  });
   const createChat = useCreateChat();
   const deleteChat = useDeleteChat();
   const queryClient = useQueryClient();

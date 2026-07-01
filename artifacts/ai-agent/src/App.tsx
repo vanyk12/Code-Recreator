@@ -138,18 +138,40 @@ function App() {
     currentSupabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
+      // Set token getter IMMEDIATELY (before next render) so that
+      // React Query hooks (e.g. useListChats) include the auth header.
+      if (s) {
+        setAuthTokenGetter(async () => {
+          const { data: { session: cur } } = await currentSupabase.auth.getSession();
+          return cur?.access_token ?? null;
+        });
+      } else {
+        setAuthTokenGetter(null);
+      }
       setAuthLoading(false);
     });
 
     const { data: { subscription } } = currentSupabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
+      // Also update token getter on auth state changes
+      if (s) {
+        setAuthTokenGetter(async () => {
+          const { data: { session: cur } } = await currentSupabase.auth.getSession();
+          return cur?.access_token ?? null;
+        });
+      } else {
+        setAuthTokenGetter(null);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, [configLoaded]);
 
   // ── Auto-attach Supabase access token to all API requests ──
+  // NOTE: Token getter is now set inside the auth session effect above
+  // to avoid a race condition where React Query fires before the token is available.
+  // This effect is kept as a safety net for edge cases (e.g. session refresh).
   useEffect(() => {
     const sb = supabaseRef.current;
     if (sb && session) {
@@ -157,7 +179,7 @@ function App() {
         const { data: { session: s } } = await sb.auth.getSession();
         return s?.access_token ?? null;
       });
-    } else {
+    } else if (!session) {
       setAuthTokenGetter(null);
     }
   }, [session, configLoaded]);
