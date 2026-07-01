@@ -1,6 +1,62 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import hljs from "highlight.js/lib/core";
+// Register only common languages to keep bundle small
+import javascript from "highlight.js/lib/languages/javascript";
+import typescript from "highlight.js/lib/languages/typescript";
+import python from "highlight.js/lib/languages/python";
+import bash from "highlight.js/lib/languages/bash";
+import json from "highlight.js/lib/languages/json";
+import css from "highlight.js/lib/languages/css";
+import xml from "highlight.js/lib/languages/xml";
+import sql from "highlight.js/lib/languages/sql";
+import yaml from "highlight.js/lib/languages/yaml";
+import markdown from "highlight.js/lib/languages/markdown";
+import rust from "highlight.js/lib/languages/rust";
+import go from "highlight.js/lib/languages/go";
+import java from "highlight.js/lib/languages/java";
+import cpp from "highlight.js/lib/languages/cpp";
+import diff from "highlight.js/lib/languages/diff";
+import dockerfile from "highlight.js/lib/languages/dockerfile";
+import plaintext from "highlight.js/lib/languages/plaintext";
+import jsx from "highlight.js/lib/languages/javascript"; // JSX uses js
+import tsx from "highlight.js/lib/languages/typescript"; // TSX uses ts
+
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("js", javascript);
+hljs.registerLanguage("typescript", typescript);
+hljs.registerLanguage("ts", typescript);
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("py", python);
+hljs.registerLanguage("bash", bash);
+hljs.registerLanguage("sh", bash);
+hljs.registerLanguage("shell", bash);
+hljs.registerLanguage("zsh", bash);
+hljs.registerLanguage("json", json);
+hljs.registerLanguage("css", css);
+hljs.registerLanguage("html", xml);
+hljs.registerLanguage("xml", xml);
+hljs.registerLanguage("svg", xml);
+hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("yaml", yaml);
+hljs.registerLanguage("yml", yaml);
+hljs.registerLanguage("markdown", markdown);
+hljs.registerLanguage("md", markdown);
+hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("rs", rust);
+hljs.registerLanguage("go", go);
+hljs.registerLanguage("golang", go);
+hljs.registerLanguage("java", java);
+hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("c", cpp);
+hljs.registerLanguage("diff", diff);
+hljs.registerLanguage("dockerfile", dockerfile);
+hljs.registerLanguage("docker", dockerfile);
+hljs.registerLanguage("jsx", jsx);
+hljs.registerLanguage("tsx", tsx);
+hljs.registerLanguage("plaintext", plaintext);
+hljs.registerLanguage("text", plaintext);
 import {
   useListMessages, useGetChat,
   getListMessagesQueryKey, getGetChatQueryKey,
@@ -56,9 +112,19 @@ function CompletionBurst() {
   );
 }
 
-/* ─────────────── Code block ─────────────── */
+/* ─────────────── Code block (with syntax highlighting) ─────────────── */
 function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
+  const highlighted = useMemo(() => {
+    if (!lang) return null;
+    try {
+      const result = hljs.highlight(code, { language: lang, ignoreIllegals: true });
+      return result.value;
+    } catch {
+      return null;
+    }
+  }, [code, lang]);
+
   return (
     <div className="relative my-3 rounded-2xl overflow-hidden border border-white/8">
       <div className="flex items-center justify-between bg-black/30 px-3 py-1.5">
@@ -68,7 +134,13 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
           {copied ? <><Check size={10} className="text-green-400" /> Скопировано</> : <><Copy size={10} /> Копировать</>}
         </button>
       </div>
-      <pre className="bg-black/50 p-3 overflow-x-auto text-xs text-foreground/80 font-mono leading-relaxed">{code}</pre>
+      {highlighted ? (
+        <pre className="hljs-wrapper bg-black/50 p-3 overflow-x-auto text-xs font-mono leading-relaxed">
+          <code className="hljs" dangerouslySetInnerHTML={{ __html: highlighted }} />
+        </pre>
+      ) : (
+        <pre className="bg-black/50 p-3 overflow-x-auto text-xs text-foreground/80 font-mono leading-relaxed">{code}</pre>
+      )}
     </div>
   );
 }

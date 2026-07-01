@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
+    "highlight.js": "^11.11.1",
     "jszip": "^3.10.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
