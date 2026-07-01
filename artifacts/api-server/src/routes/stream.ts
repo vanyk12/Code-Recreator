@@ -28,9 +28,12 @@ Use XML tags (self-closing or with content) to invoke tools:
 - \`<list_files path="subdir" />\` — list files in a subdirectory  
 - \`<read_file path="path/to/file" />\` — read file contents
 - \`<create_file path="path/to/file">content here</create_file>\` — **create or overwrite a file** (ALWAYS use this to write code)
+- \`<edit_file path="path/to/file" old_str="text to find" new_str="replacement text" />\` — **edit a specific part of a file** (finds old_str and replaces with new_str). Use for small changes — much faster than rewriting the whole file with create_file. The replacement must be unique in the file.
 - \`<view_outline path="path/to/file" />\` — show functions/classes in a file
 - \`<grep_search pattern="pattern" />\` — search files by regex pattern
 - \`<grep_search pattern="pattern" path="subdir" case_sensitive="true" />\` — targeted search
+- \`<run_command command="npm install" />\` — **execute a shell command** in the workspace. Timeout 30s. Returns stdout + stderr. Useful for running builds, scripts, installing deps, testing.
+- \`<run_command command="python main.py" timeout="60" />\` — execute with custom timeout (seconds)
 
 ### Environment & Dependencies
 - \`<manage_env_vars action="list" />\` — list .env variables
@@ -98,11 +101,13 @@ Use XML tags (self-closing or with content) to invoke tools:
 ### 📚 GitHub Analysis
 - \`<read_github_repo repo="owner/repo" />\` — clone a public GitHub repo into workspace and analyze its structure. Returns file tree + key file contents (README, package.json, requirements.txt, etc.). Useful for studying or forking projects.
 
-### 🧠 AI-Powered Tools (no backend, just use your intelligence)
+### 🧠 AI-Powered Tools
 - \`<generate_tests path="file.py" framework="pytest" />\` — analyze the code in the specified file and generate comprehensive unit tests. Write tests to a test file using <create_file>. Cover edge cases, error handling, and typical usage patterns.
 - \`<translate_code source_lang="python" target_lang="typescript" path="file.py" />\` — convert code from one language to another. Preserve logic, variable names, and comments. Write the translated file using <create_file>.
-- \`<explain_error error="paste full stack trace here" />\` — analyze a stack trace or error message, identify the root cause, search the web for known solutions (use <web_search>), and propose a fix. Apply the fix using <create_file>.
-- \`<generate_image prompt="description of image" />\` — describe an image you want to create. The system will generate it. Useful for icons, banners, placeholders for projects.
+- \`<explain_error error="paste full stack trace here" />\` — analyze a stack trace or error message, identify the root cause, search the web for known solutions (use <web_search>), and propose a fix. Apply the fix using <create_file> or <edit_file>.
+
+### 🎨 Image Generation
+- \`<generate_image prompt="description of image" />\` — **generate an image** from a text description. The image is saved to the workspace. Useful for logos, banners, icons, placeholders. Returns the image path and a markdown image tag you can show to the user.
 
 ## CRITICAL RULES
 
@@ -1933,6 +1938,131 @@ for table in doc.tables:
     }
   }
 
+  // edit_file
+  const editFileMatches = [...fullContent.matchAll(/<edit_file\s+path="([^"]+)"\s+old_str="([^"]*)"[\s]*new_str="([^"]*)"\s*\/>/g)];
+  // Also try with multiline-style content (quotes might have newlines encoded as \n)
+  if (editFileMatches.length === 0) {
+    const editMultiLine = [...fullContent.matchAll(/<edit_file\s+path="([^"]+)"\s+old_str="([\s\S]*?)"\s+new_str="([\s\S]*?)"\s*\/>/g)];
+    for (const m of editMultiLine) {
+      const relPath = m[1];
+      const oldStr = m[2].replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+      const newStr = m[3].replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+      try {
+        const absPath = safePath(relPath, chatRoot);
+        let content = await fs.readFile(absPath, "utf-8");
+        if (!content.includes(oldStr)) {
+          resultParts.push(`### ✏️ edit_file("${relPath}")\n⚠️ Текст не найден в файле. Используй <read_file> чтобы проверить содержимое.`);
+          continue;
+        }
+        content = content.replace(oldStr, newStr);
+        await fs.writeFile(absPath, content, "utf-8");
+        resultParts.push(`### ✏️ edit_file("${relPath}")\n✅ Файл обновлён (замена фрагмента)`);
+      } catch (e) {
+        resultParts.push(`### ✏️ edit_file("${relPath}")\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  } else {
+    statusMessages.push("Редактирую файлы...");
+    for (const m of editFileMatches) {
+      const relPath = m[1];
+      const oldStr = m[2].replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+      const newStr = m[3].replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+      try {
+        const absPath = safePath(relPath, chatRoot);
+        let content = await fs.readFile(absPath, "utf-8");
+        if (!content.includes(oldStr)) {
+          resultParts.push(`### ✏️ edit_file("${relPath}")\n⚠️ Текст не найден в файле. Используй <read_file> чтобы проверить содержимое.`);
+          continue;
+        }
+        content = content.replace(oldStr, newStr);
+        await fs.writeFile(absPath, content, "utf-8");
+        resultParts.push(`### ✏️ edit_file("${relPath}")\n✅ Файл обновлён (замена фрагмента)`);
+      } catch (e) {
+        resultParts.push(`### ✏️ edit_file("${relPath}")\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // run_command
+  const runCmdMatches = [...fullContent.matchAll(/<run_command\s+command="([^"]+)"(?:\s+timeout="(\d+)")?\s*\/>/g)];
+  if (runCmdMatches.length) {
+    statusMessages.push("Выполняю команду...");
+    for (const m of runCmdMatches) {
+      const command = m[1];
+      const timeout = Math.min(parseInt(m[2] || "30") * 1000, 120000);
+      try {
+        await fs.mkdir(chatRoot, { recursive: true });
+        const { stdout, stderr } = await execAsync(command, { cwd: chatRoot, timeout, maxBuffer: 1024 * 1024, shell: true });
+        const output = (stdout || "").trim();
+        const err = (stderr || "").trim();
+        const result = output + (err ? `\n\n⚠️ stderr:\n${err}` : "");
+        resultParts.push(`### ⚡ run_command("${command}")\n\`\`\`\n${result.slice(0, 6000) || "(пустой вывод)"}\n\`\`\``);
+      } catch (e: any) {
+        const msg = (e.stdout || "") + (e.stderr || "") || e.message || String(e);
+        resultParts.push(`### ⚡ run_command("${command}")\n\`\`\`\n${msg.slice(0, 6000)}\n\`\`\``);
+      }
+    }
+  }
+
+  // generate_image
+  const genImageMatches = [...fullContent.matchAll(/<generate_image\s+prompt="([^"]+)"\s*\/>/g)];
+  if (genImageMatches.length) {
+    statusMessages.push("Генерирую изображение...");
+    const apiKey = await getApiKey();
+    let imageModel = "openai/dall-e-3";
+    try {
+      const modelRow = await db.select().from(settingsTable).where(eq(settingsTable.key, "image_model"));
+      imageModel = modelRow[0]?.value || imageModel;
+    } catch {}
+    for (const m of genImageMatches) {
+      const prompt = m[1];
+      if (!apiKey) { resultParts.push(`### 🎨 generate_image\n⚠️ OpenRouter API ключ не настроен.`); continue; }
+      try {
+        const orRes = await fetch("https://openrouter.ai/api/v1/images/generations", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://synapse-agent.replit.app",
+            "X-Title": "SYNAPSE AGENT",
+          },
+          body: JSON.stringify({ model: imageModel, prompt: prompt.trim(), n: 1, size: "1024x1024" }),
+        });
+        if (!orRes.ok) {
+          const errText = await orRes.text();
+          resultParts.push(`### 🎨 generate_image\n⚠️ Ошибка генерации (${orRes.status}): ${errText.slice(0, 300)}`);
+          continue;
+        }
+        const data = await orRes.json() as { data?: Array<{ url?: string; b64_json?: string; revised_prompt?: string }> };
+        const image = data.data?.[0];
+        if (!image) { resultParts.push(`### 🎨 generate_image\n⚠️ Пустой ответ от модели`); continue; }
+        const imageUrl = image.url || (image.b64_json ? `data:image/png;base64,${image.b64_json}` : null);
+        if (imageUrl?.startsWith("data:") && image.b64_json) {
+          // Save base64 image to workspace
+          const buffer = Buffer.from(image.b64_json, "base64");
+          const imgFileName = `generated_${Date.now()}.png`;
+          const imgPath = path.join(chatRoot, imgFileName);
+          await fs.writeFile(imgPath, buffer);
+          resultParts.push(`### 🎨 generate_image\n✅ Изображение сохранено: \`${imgFileName}\`\n\n![${prompt.slice(0, 80)}](${imgFileName})`);
+        } else if (imageUrl) {
+          // Download and save
+          try {
+            const imgResp = await fetch(imageUrl);
+            const buffer = Buffer.from(await imgResp.arrayBuffer());
+            const imgFileName = `generated_${Date.now()}.png`;
+            const imgPath = path.join(chatRoot, imgFileName);
+            await fs.writeFile(imgPath, buffer);
+            resultParts.push(`### 🎨 generate_image\n✅ Изображение сохранено: \`${imgFileName}\`\n\n![${prompt.slice(0, 80)}](${imgFileName})`);
+          } catch {
+            resultParts.push(`### 🎨 generate_image\n✅ Изображение сгенерировано (не удалось скачать в workspace):\n\n![${prompt.slice(0, 80)}](${imageUrl})`);
+          }
+        }
+      } catch (e) {
+        resultParts.push(`### 🎨 generate_image\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
   const hasTools = resultParts.length > 0;
   const toolResults = hasTools ? `## Результаты инструментов\n\n${resultParts.join("\n\n---\n\n")}` : "";
   return { hasTools, toolResults, statusMessages };
@@ -2128,7 +2258,62 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
     const thinkingSuffix = THINKING_SUFFIXES[thinkingLevel || "auto"] ?? "";
     const effectiveSystemPrompt = AGENT_SYSTEM_PROMPT + modeSuffix + thinkingSuffix;
 
-    const priorHistory = history.slice(0, -1);
+    // ── Context management: summarize old messages if too long ──
+    const MAX_CONTEXT_TOKENS = 80000; // ~320K chars
+    const SUMMARY_THRESHOLD = 60000;  // trigger summarization above this
+    let priorHistory = history.slice(0, -1);
+    let contextNote = "";
+
+    // Estimate total tokens in history
+    const historyTokens = priorHistory.reduce((sum, m) => sum + estimateTokens(m.content || ""), 0);
+
+    if (historyTokens > SUMMARY_THRESHOLD) {
+      send({ type: "status", status: "Сжимаю контекст..." });
+      try {
+        // Keep last 8 messages as-is, summarize the rest
+        const keepCount = 8;
+        const toSummarize = priorHistory.slice(0, -keepCount);
+        const toKeep = priorHistory.slice(-keepCount);
+
+        if (toSummarize.length > 0) {
+          const summaryMessages = toSummarize.map(m => `${m.role === "user" ? "Пользователь" : "Агент"}: ${(m.content || "").slice(0, 300)}`).join("\n");
+          const summaryResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://synapse-agent.replit.app",
+              "X-Title": "SYNAPSE AGENT",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.0-flash-001",
+              messages: [{
+                role: "user",
+                content: `Сожми эту историю чата в краткое резюме (на русском, максимум 500 слов). Сохрани: какие файлы были созданы/изменены, ключевые решения, текущее состояние проекта. Не включай приветствия и пустые сообщения.\n\n${summaryMessages}`,
+              }],
+              max_tokens: 1024,
+              stream: false,
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (summaryResp.ok) {
+            const summaryData = await summaryResp.json() as { choices?: { message?: { content?: string } }[] };
+            const summary = summaryData.choices?.[0]?.message?.content?.trim();
+            if (summary) {
+              priorHistory = [
+                { role: "assistant" as const, content: `[Сводка предыдущей переписки]\n${summary}`, tokensUsed: 0, status: "done", id: 0, chatId: 0, createdAt: new Date() },
+                ...toKeep,
+              ];
+              contextNote = ` (контекст сжат: ${toSummarize.length} сообщений → саммари)`;
+              req.log.info({ originalMessages: toSummarize.length, kept: toKeep.length }, "Context summarized");
+            }
+          }
+        }
+      } catch (sumErr) {
+        req.log.error({ err: sumErr }, "Context summarization failed, using full history");
+      }
+    }
+
     const messages: { role: string; content: MsgContent }[] = [
       { role: "system", content: effectiveSystemPrompt },
       ...priorHistory.map(m => ({ role: m.role, content: m.content })),
@@ -2248,12 +2433,24 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
       }
     }
 
-    // Execute all tool calls found in model output
-    const { hasTools, toolResults, statusMessages } = await executeTools(fullContent, chatRoot);
+    // Multi-turn tool execution loop (up to 5 rounds)
+    const MAX_TOOL_ROUNDS = 5;
+    let toolRound = 0;
+    let conversationMessages: { role: string; content: MsgContent }[] = [
+      { role: "system", content: effectiveSystemPrompt },
+      ...priorHistory.map(m => ({ role: m.role, content: m.content })),
+      { role: "user", content: currentUserContent },
+    ];
 
-    if (hasTools) {
+    while (toolRound < MAX_TOOL_ROUNDS) {
+      const { hasTools, toolResults, statusMessages } = await executeTools(fullContent, chatRoot);
+
+      if (!hasTools) break; // No tools found — we're done
+
+      toolRound++;
       for (const s of statusMessages) send({ type: "status", status: s });
 
+      // Save the assistant message with tool calls
       try {
         await db.insert(messagesTable).values({
           chatId, role: "assistant", content: fullContent, tokensUsed: tokenCount, status: "done",
@@ -2262,70 +2459,100 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
         req.log.error({ err: dbErr, chatId }, "Failed to save assistant message (tool round)");
       }
 
-      send({ type: "status", status: "Обрабатываю результаты..." });
+      send({ type: "status", status: toolRound < MAX_TOOL_ROUNDS ? `Обрабатываю результаты (раунд ${toolRound})...` : "Финальный ответ..." });
 
-      const messagesWithTools: { role: string; content: MsgContent }[] = [
-        { role: "system", content: effectiveSystemPrompt },
-        ...history.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
-        { role: "user", content: currentUserContent },
-        { role: "assistant", content: fullContent },
-        { role: "user", content: toolResults },
-      ];
+      // Build messages for next LLM call
+      conversationMessages.push({ role: "assistant", content: fullContent });
+      conversationMessages.push({ role: "user", content: toolResults });
 
-      const abort2 = new AbortController();
-      const timeout2 = setTimeout(() => abort2.abort(), 120_000);
+      // Call LLM again
+      const abortN = new AbortController();
+      const timeoutN = setTimeout(() => abortN.abort(), 120_000);
       let toolResponse: Response | null = null;
       try {
         toolResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
-          signal: abort2.signal,
+          signal: abortN.signal,
           headers: {
             "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json",
             "HTTP-Referer": "https://synapse-agent.replit.app",
             "X-Title": "SYNAPSE AGENT",
           },
-          body: JSON.stringify({ model: activeModel, messages: messagesWithTools, stream: true, max_tokens: 16384 }),
+          body: JSON.stringify({ model: activeModel, messages: conversationMessages, stream: true, max_tokens: 16384 }),
         });
       } catch {
-        send({ type: "status", status: "⏱️ Таймаут финального ответа" });
+        send({ type: "status", status: "⏱️ Таймаут ответа" });
+        break;
       }
-      clearTimeout(timeout2);
+      clearTimeout(timeoutN);
 
-      if (toolResponse && toolResponse.ok && toolResponse.body) {
-        send({ type: "status", status: "Генерирую финальный ответ..." });
-        fullContent = "";
-        tokenCount = 0;
-        const toolReader = toolResponse.body.getReader();
-        const toolDecoder = new TextDecoder();
-        let toolBuf = "";
-        writingFile = false;
+      if (!toolResponse || !toolResponse.ok || !toolResponse.body) break;
 
-        while (true) {
-          const { done, value } = await toolReader.read();
-          if (done) break;
-          toolBuf += toolDecoder.decode(value, { stream: true });
-          const lines = toolBuf.split("\n");
-          toolBuf = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6).trim();
-            if (!data || data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[]; usage?: { total_tokens?: number } };
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                fullContent += delta;
-                tokenCount += estimateTokens(delta);
-                const inFileNow = fullContent.includes("<create_file") && !fullContent.includes("</create_file>");
-                if (inFileNow && !writingFile) { writingFile = true; send({ type: "status", status: "Пишу код файла..." }); }
-                else if (!inFileNow && writingFile && fullContent.includes("</create_file>")) { writingFile = false; send({ type: "status", status: "Файл готов ✓" }); }
-                send({ type: "chunk", content: delta });
-              }
-              if (parsed.usage?.total_tokens) tokenCount = parsed.usage.total_tokens;
-            } catch { /* ignore */ }
-          }
+      // Stream the new response
+      fullContent = "";
+      tokenCount = 0;
+      const toolReader = toolResponse.body.getReader();
+      const toolDecoder = new TextDecoder();
+      let toolBuf = "";
+      writingFile = false;
+
+      while (true) {
+        const { done, value } = await toolReader.read();
+        if (done) break;
+        toolBuf += toolDecoder.decode(value, { stream: true });
+        const lines = toolBuf.split("\n");
+        toolBuf = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (!data || data === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[]; usage?: { total_tokens?: number } };
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullContent += delta;
+              tokenCount += estimateTokens(delta);
+              const inFileNow = fullContent.includes("<create_file") && !fullContent.includes("</create_file>");
+              if (inFileNow && !writingFile) { writingFile = true; send({ type: "status", status: "Пишу код файла..." }); }
+              else if (!inFileNow && writingFile && fullContent.includes("</create_file>")) { writingFile = false; send({ type: "status", status: "Файл готов ✓" }); }
+              send({ type: "chunk", content: delta });
+            }
+            if (parsed.usage?.total_tokens) tokenCount = parsed.usage.total_tokens;
+          } catch { /* ignore */ }
         }
+      }
+
+      // Also create files from this round's output
+      const roundFileRe = /<create_file\s+path="([^"]+)">([\s\S]*?)<\/create_file>/g;
+      let rfm;
+      while ((rfm = roundFileRe.exec(fullContent)) !== null) {
+        const [, filePath, fileContent] = rfm;
+        try {
+          const fullFilePath = safePath(filePath, chatRoot);
+          await fs.mkdir(path.dirname(fullFilePath), { recursive: true });
+          await fs.writeFile(fullFilePath, fileContent, "utf-8");
+          req.log.info({ filePath, bytes: fileContent.length }, "Auto-created file (tool round)");
+        } catch (err) {
+          req.log.error({ err, filePath }, "Failed to auto-create file (tool round)");
+        }
+      }
+
+      // Handle edit_file from this round too
+      const roundEditRe = /<edit_file\s+path="([^"]+)"\s+old_str="([^"]*)"\s+new_str="([^"]*)"\s*\/>/g;
+      let rem;
+      while ((rem = roundEditRe.exec(fullContent)) !== null) {
+        const relPath = rem[1];
+        const oldStr = rem[2].replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+        const newStr = rem[3].replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+        try {
+          const absPath = safePath(relPath, chatRoot);
+          let content = await fs.readFile(absPath, "utf-8");
+          if (content.includes(oldStr)) {
+            content = content.replace(oldStr, newStr);
+            await fs.writeFile(absPath, content, "utf-8");
+          }
+        } catch {}
       }
     }
 

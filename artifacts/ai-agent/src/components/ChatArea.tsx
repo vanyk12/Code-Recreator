@@ -414,97 +414,144 @@ function splitPlaceholders(text: string, actions: ContentPart[]): ContentPart[] 
   return segs.filter(Boolean);
 }
 
-/* ─────────────── Markdown renderer ─────────────── */
-function MarkdownText({ content }: { content: string }) {
+/* ─────────────── Image Lightbox ─────────────── */
+function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        p: ({ children }) => (
-          <p className="text-sm leading-relaxed mb-2 last:mb-0">{children}</p>
-        ),
-        strong: ({ children }) => (
-          <strong className="font-semibold text-foreground">{children}</strong>
-        ),
-        em: ({ children }) => (
-          <em className="italic text-foreground/80">{children}</em>
-        ),
-        h1: ({ children }) => (
-          <h1 className="text-lg font-bold text-foreground mt-3 mb-1.5 pb-1"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{children}</h1>
-        ),
-        h2: ({ children }) => (
-          <h2 className="text-base font-semibold text-foreground mt-3 mb-1.5">{children}</h2>
-        ),
-        h3: ({ children }) => (
-          <h3 className="text-sm font-semibold text-foreground/90 mt-2 mb-1">{children}</h3>
-        ),
-        ul: ({ children }) => (
-          <ul className="space-y-1 my-2 pl-0">{children}</ul>
-        ),
-        ol: ({ children }) => (
-          <ol className="space-y-1 my-2 pl-0 list-none">{children}</ol>
-        ),
-        li: ({ children, ...props }) => {
-          void (props as { ordered?: boolean }).ordered;
-          return (
-            <li className="flex items-start gap-2 text-sm leading-relaxed">
-              <span className="shrink-0 mt-1.5"
-                style={{
-                  width: 5, height: 5, borderRadius: "50%",
-                  background: "hsl(25 95% 53% / 0.7)",
-                  display: "block", flexShrink: 0
-                }} />
-              <span className="flex-1">{children}</span>
-            </li>
-          );
-        },
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noreferrer"
-            className="text-accent/80 hover:text-accent underline underline-offset-2 break-words">
-            {children}
-          </a>
-        ),
-        blockquote: ({ children }) => (
-          <blockquote className="pl-3 my-2 text-sm text-foreground/60 italic"
-            style={{ borderLeft: "3px solid hsl(25 95% 53% / 0.4)" }}>
-            {children}
-          </blockquote>
-        ),
-        code: ({ children, className }) => {
-          if (className) return <code className={className}>{children}</code>;
-          return (
-            <code className="px-1.5 py-0.5 rounded-md text-[12px] font-mono"
-              style={{ background: "rgba(255,255,255,0.08)", color: "hsl(25 95% 70%)" }}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <button className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors z-10" onClick={onClose}>
+        <X size={20} />
+      </button>
+      <img
+        src={src}
+        alt={alt || ""}
+        className="max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl object-contain"
+        onClick={e => e.stopPropagation()}
+      />
+    </div>
+  );
+}
+
+/* ─────────────── Markdown renderer ─────────────── */
+function MarkdownText({ content, chatId }: { content: string; chatId?: number }) {
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxAlt, setLightboxAlt] = useState<string>("");
+
+  return (
+    <>
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} alt={lightboxAlt} onClose={() => setLightboxSrc(null)} />}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          p: ({ children }) => (
+            <p className="text-sm leading-relaxed mb-2 last:mb-0">{children}</p>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold text-foreground">{children}</strong>
+          ),
+          em: ({ children }) => (
+            <em className="italic text-foreground/80">{children}</em>
+          ),
+          h1: ({ children }) => (
+            <h1 className="text-lg font-bold text-foreground mt-3 mb-1.5 pb-1"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{children}</h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="text-base font-semibold text-foreground mt-3 mb-1.5">{children}</h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="text-sm font-semibold text-foreground/90 mt-2 mb-1">{children}</h3>
+          ),
+          ul: ({ children }) => (
+            <ul className="space-y-1 my-2 pl-0">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="space-y-1 my-2 pl-0 list-none">{children}</ol>
+          ),
+          li: ({ children, ...props }) => {
+            void (props as { ordered?: boolean }).ordered;
+            return (
+              <li className="flex items-start gap-2 text-sm leading-relaxed">
+                <span className="shrink-0 mt-1.5"
+                  style={{
+                    width: 5, height: 5, borderRadius: "50%",
+                    background: "hsl(25 95% 53% / 0.7)",
+                    display: "block", flexShrink: 0
+                  }} />
+                <span className="flex-1">{children}</span>
+              </li>
+            );
+          },
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer"
+              className="text-accent/80 hover:text-accent underline underline-offset-2 break-words">
               {children}
-            </code>
-          );
-        },
-        hr: () => (
-          <hr className="my-3" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
-        ),
-        table: ({ children }) => (
-          <div className="my-2 overflow-x-auto rounded-xl"
-            style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
-            <table className="w-full text-sm border-collapse">{children}</table>
-          </div>
-        ),
-        th: ({ children }) => (
-          <th className="px-3 py-2 text-left text-xs font-semibold text-foreground/60"
-            style={{ background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-            {children}
-          </th>
-        ),
-        td: ({ children }) => (
-          <td className="px-3 py-2 text-sm text-foreground/70"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-            {children}
-          </td>
-        ),
-      }}
-    >
-      {content}
-    </ReactMarkdown>
+            </a>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="pl-3 my-2 text-sm text-foreground/60 italic"
+              style={{ borderLeft: "3px solid hsl(25 95% 53% / 0.4)" }}>
+              {children}
+            </blockquote>
+          ),
+          code: ({ children, className }) => {
+            if (className) return <code className={className}>{children}</code>;
+            return (
+              <code className="px-1.5 py-0.5 rounded-md text-[12px] font-mono"
+                style={{ background: "rgba(255,255,255,0.08)", color: "hsl(25 95% 70%)" }}>
+                {children}
+              </code>
+            );
+          },
+          hr: () => (
+            <hr className="my-3" style={{ borderColor: "rgba(255,255,255,0.08)" }} />
+          ),
+          table: ({ children }) => (
+            <div className="my-2 overflow-x-auto rounded-xl"
+              style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+              <table className="w-full text-sm border-collapse">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="px-3 py-2 text-left text-xs font-semibold text-foreground/60"
+              style={{ background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="px-3 py-2 text-sm text-foreground/70"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+              {children}
+            </td>
+          ),
+          img: ({ src, alt }) => {
+            if (!src) return null;
+            // Resolve relative paths to workspace API
+            let imgSrc = src || "";
+            if (chatId && !imgSrc.startsWith("http") && !imgSrc.startsWith("data:") && !imgSrc.startsWith("blob:")) {
+              imgSrc = `/api/workspace/${chatId}/${imgSrc}`;
+            }
+            return (
+              <div className="my-3 inline-block">
+                <img
+                  src={imgSrc}
+                  alt={alt || ""}
+                  className="max-w-full max-h-80 rounded-xl border border-white/8 cursor-pointer hover:border-accent/40 transition-colors object-contain"
+                  onClick={() => { setLightboxSrc(imgSrc); setLightboxAlt(alt || ""); }}
+                  loading="lazy"
+                />
+              </div>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </>
   );
 }
 
@@ -553,7 +600,7 @@ function MessageContent({
             </div>
           );
         }
-        return <MarkdownText key={i} content={p.content} />;
+        return <MarkdownText key={i} content={p.content} chatId={chatId} />;
       })}
     </>
   );
