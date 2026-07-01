@@ -16,6 +16,13 @@ export type UnsavedMessage = {
 // Global cache: chatId → unsaved messages (survives chat switches within the session)
 const unsavedCache = new Map<number, UnsavedMessage[]>();
 
+/** Get total unsaved tokens for a chat (used by Sidebar) */
+export function getUnsavedTokensForChat(chatId: number): number {
+  const msgs = unsavedCache.get(chatId);
+  if (!msgs) return 0;
+  return msgs.reduce((sum, m) => sum + (m.tokensUsed || 0), 0);
+}
+
 export function useStreamChat(chatId: number | null, onFilesCreated?: () => void) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState('');
@@ -157,24 +164,24 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
               if (event.message) {
                 // DB saved — clear unsaved for this chat, refetch
                 const cleared: UnsavedMessage[] = [];
-                setUnsavedMessages(cleared);
                 saveToCache(cleared);
+                setUnsavedMessages(cleared);
                 queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
               } else {
-                // DB failed — keep both messages locally
-                setUnsavedMessages(prev => {
-                  const next = [...prev, {
-                    id: Date.now() + 1,
-                    chatId: chatId!,
-                    role: 'assistant' as const,
-                    content: finalContent,
-                    tokensUsed: event.tokens || 0,
-                    status: 'done',
-                    createdAt: new Date().toISOString(),
-                  }];
-                  saveToCache(next);
-                  return next;
-                });
+                // DB failed — keep assistant message locally (sync cache update first)
+                const assistantMsg: UnsavedMessage = {
+                  id: Date.now() + 1,
+                  chatId: chatId!,
+                  role: 'assistant' as const,
+                  content: finalContent,
+                  tokensUsed: event.tokens || 0,
+                  status: 'done',
+                  createdAt: new Date().toISOString(),
+                };
+                const current = unsavedCache.get(chatId!) || [];
+                const next = [...current, assistantMsg];
+                saveToCache(next);
+                setUnsavedMessages(next);
               }
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
             } else if (event.type === 'error') {
@@ -183,19 +190,19 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
               setIsStreaming(false);
               setStreamStatus(null);
               if (contentRef.current) {
-                setUnsavedMessages(prev => {
-                  const next = [...prev, {
-                    id: Date.now() + 1,
-                    chatId: chatId!,
-                    role: 'assistant' as const,
-                    content: contentRef.current,
-                    tokensUsed: 0,
-                    status: 'error',
-                    createdAt: new Date().toISOString(),
-                  }];
-                  saveToCache(next);
-                  return next;
-                });
+                const errorMsg: UnsavedMessage = {
+                  id: Date.now() + 1,
+                  chatId: chatId!,
+                  role: 'assistant' as const,
+                  content: contentRef.current,
+                  tokensUsed: 0,
+                  status: 'error',
+                  createdAt: new Date().toISOString(),
+                };
+                const current = unsavedCache.get(chatId!) || [];
+                const next = [...current, errorMsg];
+                saveToCache(next);
+                setUnsavedMessages(next);
               }
               setStreamContent('');
               queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });

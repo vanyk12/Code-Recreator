@@ -586,6 +586,13 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   });
   const { streamMessage, isStreaming, streamContent, streamStatus, streamError, lastFullContent, cancelStream, unsavedMessages } = useStreamChat(chatId, onFilesCreated);
 
+  // Merge DB tokens with unsaved message tokens
+  const dbTokens = chat?.totalTokens || 0;
+  const dbMsgCount = chat?.messageCount || 0;
+  const unsavedTokens = unsavedMessages.reduce((sum, m) => sum + (m.tokensUsed || 0), 0);
+  const displayTokens = dbTokens + unsavedTokens;
+  const displayMsgCount = dbMsgCount + unsavedMessages.length;
+
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
   const [attachedImages, setAttachedImages] = useState<{ name: string; dataUrl: string }[]>([]);
@@ -980,8 +987,8 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
 
         {/* Bottom stats */}
         <div className="mt-1.5 flex items-center justify-center gap-4 text-[10px] text-muted-foreground/30">
-          <span className="flex items-center gap-1"><Zap size={9} />{(chat?.totalTokens || 0).toLocaleString("ru")} токенов</span>
-          <span>{chat?.messageCount || 0} сообщений</span>
+          <span className="flex items-center gap-1"><Zap size={9} />{displayTokens.toLocaleString("ru")} токенов</span>
+          <span>{displayMsgCount} сообщений</span>
           <span className="font-mono">{chat?.model?.split("/")[1] || "—"}</span>
           <span className="opacity-50">⌘Enter · 🎤 голос · 📎 файлы</span>
         </div>

@@ -7,6 +7,7 @@ import { SettingsDialog } from "./SettingsDialog";
 import { useState, useEffect } from "react";
 import { AUTH_ENABLED } from "@/lib/auth";
 import { useTheme, useAuth } from "@/App";
+import { getUnsavedTokensForChat } from "@/hooks/use-stream-chat";
 
 export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number | null; onSelectChat: (id: number | null) => void }) {
   const { data: chats } = useListChats();
@@ -192,7 +193,7 @@ export function Sidebar({ activeChatId, onSelectChat }: { activeChatId: number |
               <div className="font-medium truncate pr-6 text-sm">{chat.title || "Без названия"}</div>
               <div className="flex justify-between mt-0.5 text-[11px] opacity-45">
                 <span>{format(new Date(chat.createdAt), "d MMM, HH:mm", { locale: ru })}</span>
-                <span>{chat.totalTokens.toLocaleString("ru")} тк</span>
+                <span>{(chat.totalTokens + getUnsavedTokensForChat(chat.id)).toLocaleString("ru")} тк</span>
               </div>
               <button
                 onClick={(e) => handleDelete(e, chat.id)}
