@@ -13,8 +13,39 @@ export type UnsavedMessage = {
   createdAt: string;
 };
 
-// Global cache: chatId → unsaved messages (survives chat switches within the session)
+const LS_PREFIX = 'synapse_unsaved_';
+
+// Global cache: chatId → unsaved messages (survives chat switches + page reloads)
 const unsavedCache = new Map<number, UnsavedMessage[]>();
+
+function loadCacheFromStorage(): void {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(LS_PREFIX)) continue;
+      const chatId = Number(key.slice(LS_PREFIX.length));
+      if (!Number.isNaN(chatId)) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try { unsavedCache.set(chatId, JSON.parse(raw)); } catch { /* corrupt */ }
+        }
+      }
+    }
+  } catch { /* localStorage unavailable */ }
+}
+
+function persistCache(chatId: number, msgs: UnsavedMessage[]): void {
+  if (msgs.length === 0) {
+    unsavedCache.delete(chatId);
+    try { localStorage.removeItem(LS_PREFIX + chatId); } catch {}
+  } else {
+    unsavedCache.set(chatId, msgs);
+    try { localStorage.setItem(LS_PREFIX + chatId, JSON.stringify(msgs)); } catch {}
+  }
+}
+
+// Load persisted messages on module init
+loadCacheFromStorage();
 
 /** Get total unsaved tokens for a chat (used by Sidebar) */
 export function getUnsavedTokensForChat(chatId: number): number {
@@ -37,6 +68,7 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
   // When switching chats, load this chat's unsaved messages from cache
   useEffect(() => {
     if (chatId) {
+      // If DB has messages for this chat, clear unsaved (they were saved)
       setUnsavedMessages(unsavedCache.get(chatId) || []);
     } else {
       setUnsavedMessages([]);
@@ -44,14 +76,10 @@ export function useStreamChat(chatId: number | null, onFilesCreated?: () => void
     setStreamError(null);
   }, [chatId]);
 
-  // Helper: persist current unsaved messages to cache for this chatId
+  // Helper: persist current unsaved messages to cache + localStorage
   const saveToCache = useCallback((msgs: UnsavedMessage[]) => {
     if (chatId) {
-      if (msgs.length === 0) {
-        unsavedCache.delete(chatId);
-      } else {
-        unsavedCache.set(chatId, msgs);
-      }
+      persistCache(chatId, msgs);
     }
   }, [chatId]);
 
