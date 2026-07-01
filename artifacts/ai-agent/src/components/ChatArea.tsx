@@ -8,7 +8,8 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListChatsQueryKey } from "@workspace/api-client-react";
-import { useStreamChat } from "@/hooks/use-stream-chat";
+import { useStreamChat, persistCache } from "@/hooks/use-stream-chat";
+import type { UnsavedMessage } from "@/hooks/use-stream-chat";
 import {
   Send, Paperclip, Copy, Check, Loader2, Zap,
   FileCode, Terminal, Play, CheckCircle2, X,
@@ -558,13 +559,14 @@ function MessageContent({
   );
 }
 
-type AgentMode = "chat" | "plan" | "build";
+type AgentMode = "chat" | "plan" | "build" | "image";
 type ThinkingLevel = "auto" | "t1" | "t2" | "t3" | "t4";
 
 const MODES: { id: AgentMode; label: string; title: string }[] = [
   { id: "chat", label: "Чат", title: "Обсуждение без создания кода" },
   { id: "plan", label: "План", title: "Сначала план, потом код" },
   { id: "build", label: "Создать", title: "Сразу пишет код и файлы" },
+  { id: "image", label: "Картинка", title: "Генерация изображения по промпту" },
 ];
 
 const THINKING_LEVELS: { id: ThinkingLevel; label: string; title: string }[] = [
@@ -598,6 +600,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   const [attachedImages, setAttachedImages] = useState<{ name: string; dataUrl: string }[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; content: string }[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [cmdStates, setCmdStates] = useState<Map<number, Map<string, RunCmd>>>(new Map());
   const [agentMode, setAgentMode] = useState<AgentMode>("build");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("auto");
@@ -682,7 +685,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   };
 
   const handleSend = () => {
-    if ((!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0) || isStreaming) return;
+    if ((!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0) || isStreaming || isGeneratingImage) return;
     let content = input.trim();
     if (attachedFiles.length > 0) {
       const fileBlocks = attachedFiles.map(f => {
@@ -697,7 +700,118 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
     setInput("");
     setAttachedImages([]);
     setAttachedFiles([]);
+
+    // Image generation mode
+    if (agentMode === "image") {
+      generateImage(content);
+      return;
+    }
+
     streamMessage(content, images, agentMode, thinkingLevel);
+  };
+
+  const generateImage = async (prompt: string) => {
+    if (!chatId) return;
+    setIsGeneratingImage(true);
+
+    // Optimistic user message
+    const userMsg: UnsavedMessage = {
+      id: Date.now(),
+      chatId,
+      role: "user",
+      content: prompt,
+      tokensUsed: 0,
+      status: "done",
+      createdAt: new Date().toISOString(),
+    };
+    setUnsavedMessages(prev => {
+      const next = [...prev, userMsg];
+      persistCache(chatId, next);
+      return next;
+    });
+
+    try {
+      const { client: sb } = await import("@/lib/supabase").then(m => m.getSupabaseState());
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (sb) {
+        const { data: { session: s } } = await sb.auth.getSession();
+        if (s?.access_token) headers["Authorization"] = `Bearer ${s.access_token}`;
+      }
+
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ chatId, prompt }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Ошибка генерации" }));
+        // Show error as assistant message
+        const errMsg: UnsavedMessage = {
+          id: Date.now() + 1,
+          chatId,
+          role: "assistant",
+          content: `❌ ${err.error || "Ошибка генерации изображения"}`,
+          tokensUsed: 0,
+          status: "done",
+          createdAt: new Date().toISOString(),
+        };
+        setUnsavedMessages(prev => {
+          const next = [...prev, errMsg];
+          persistCache(chatId, next);
+          return next;
+        });
+      } else {
+        const data = await res.json() as { url?: string; revised_prompt?: string; message_id?: number };
+        if (data.url) {
+          // Show image as assistant message
+          const revisedText = data.revised_prompt ? `\n\n*${data.revised_prompt}*` : "";
+          const imgContent = `![Сгенерировано](${data.url})${revisedText}`;
+
+          const imgMsg: UnsavedMessage = {
+            id: Date.now() + 1,
+            chatId,
+            role: "assistant",
+            content: imgContent,
+            tokensUsed: 0,
+            status: "done",
+            createdAt: new Date().toISOString(),
+          };
+
+          // If saved to DB, clear unsaved and refetch
+          if (data.message_id) {
+            setUnsavedMessages([]);
+            persistCache(chatId, []);
+            queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(chatId) });
+          } else {
+            setUnsavedMessages(prev => {
+              const next = [...prev, imgMsg];
+              persistCache(chatId, next);
+              return next;
+            });
+          }
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: getListChatsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetChatQueryKey(chatId) });
+    } catch (err) {
+      const errorMsg: UnsavedMessage = {
+        id: Date.now() + 1,
+        chatId,
+        role: "assistant",
+        content: `❌ Ошибка: ${err instanceof Error ? err.message : "Неизвестная ошибка"}`,
+        tokensUsed: 0,
+        status: "done",
+        createdAt: new Date().toISOString(),
+      };
+      setUnsavedMessages(prev => {
+        const next = [...prev, errorMsg];
+        persistCache(chatId, next);
+        return next;
+      });
+    } finally {
+      setIsGeneratingImage(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -842,6 +956,25 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
           </div>
         )}
 
+        {/* Image generation spinner */}
+        {isGeneratingImage && (
+          <div className="flex justify-start">
+            <div className="max-w-[82%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 bg-black/18 border border-white/6 backdrop-blur-sm border-l-2 border-l-purple-400/50">
+              <div className="flex items-center gap-3 py-2">
+                <OctopusIcon swimming size={32} />
+                <div>
+                  <p className="text-sm text-foreground font-medium">Генерирую изображение...</p>
+                  <p className="text-[11px] text-muted-foreground/50 mt-0.5">Может занять 10-30 секунд</p>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 text-[11px] text-purple-400/60">
+                <Loader2 size={10} className="animate-spin" />
+                <span>Создаю картинку</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -900,6 +1033,8 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
                       ? "bg-primary text-primary-foreground"
                       : m.id === "plan"
                       ? "bg-accent/80 text-accent-foreground"
+                      : m.id === "image"
+                      ? "bg-purple-500/80 text-purple-50"
                       : "bg-white/15 text-foreground"
                     : "text-muted-foreground/50 hover:text-muted-foreground/80"
                 } ${i > 0 ? "border-l border-white/8" : ""}`}
@@ -949,8 +1084,8 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isListening ? "Слушаю..." : "Спросить SYNAPSE"}
-            disabled={isStreaming}
+            placeholder={isListening ? "Слушаю..." : agentMode === "image" ? "Опиши картинку, которую хочешь..." : "Спросить SYNAPSE"}
+            disabled={isStreaming || isGeneratingImage}
             className="flex-1 bg-transparent border-none outline-none px-2 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/35 resize-none min-h-[52px] max-h-[180px] font-sans disabled:opacity-50"
             rows={1}
             style={{ fieldSizing: "content" } as React.CSSProperties}

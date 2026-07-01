@@ -7,6 +7,7 @@ interface Settings {
   telegramApiId: string;
   telegramApiHash: string;
   telegramPhone: string;
+  imageModel: string;
 }
 
 interface Props {
@@ -17,7 +18,7 @@ interface Props {
 }
 
 export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Props) {
-  const [settings, setSettings] = useState<Settings>({ openrouterKey: "", defaultModel: "anthropic/claude-3.5-sonnet", telegramApiId: "", telegramApiHash: "", telegramPhone: "" });
+  const [settings, setSettings] = useState<Settings>({ openrouterKey: "", defaultModel: "anthropic/claude-3.5-sonnet", telegramApiId: "", telegramApiHash: "", telegramPhone: "", imageModel: "openai/dall-e-3" });
   const [showKey, setShowKey] = useState(false);
   const [showTgHash, setShowTgHash] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,6 +38,7 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
             telegramApiId: data.telegram_api_id || "",
             telegramApiHash: data.telegram_api_hash || "",
             telegramPhone: data.telegram_phone || "",
+            imageModel: data.image_model || "openai/dall-e-3",
           });
         })
         .catch(() => {});
@@ -58,6 +60,9 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
       }
       if (settings.telegramPhone.trim()) {
         body.telegram_phone = settings.telegramPhone.trim();
+      }
+      if (settings.imageModel.trim()) {
+        body.image_model = settings.imageModel.trim();
       }
       await fetch("/api/settings", {
         method: "POST",
@@ -214,6 +219,40 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
               <button type="button" onClick={() => setShowTgHash(v => !v)} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">
                 {showTgHash ? "Скрыть" : "Показать"} API Hash
               </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Cpu size={14} className="text-purple-400" />
+                Модель генерации картинок
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Используется в режиме «Картинка» в чате. Через{" "}
+                <span className="font-mono text-accent/80">OpenRouter</span>.
+              </p>
+              <input
+                type="text"
+                value={settings.imageModel}
+                onChange={e => setSettings(s => ({ ...s, imageModel: e.target.value }))}
+                placeholder="openai/dall-e-3"
+                className="w-full bg-input border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400 font-mono"
+              />
+              <div className="grid grid-cols-3 gap-2 mt-1">
+                {[
+                  "openai/dall-e-3",
+                  "openai/dall-e-3-hd",
+                  "stabilityai/stable-diffusion-xl-1024-v1-0",
+                ].map(m => (
+                  <button key={m} onClick={() => setSettings(s => ({ ...s, imageModel: m }))}
+                    className={`text-left px-2 py-1.5 rounded-xl text-[10px] font-mono truncate transition-colors border ${
+                      settings.imageModel === m
+                        ? "bg-purple-500/20 border-purple-400/40 text-purple-300"
+                        : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+                    }`}>
+                    {m.split("/")[1]}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="pt-2">

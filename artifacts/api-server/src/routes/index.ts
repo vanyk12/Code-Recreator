@@ -9,6 +9,7 @@ import settingsRouter from "./settings";
 import modelsRouter from "./models";
 import botRouter from "./bot";
 import tgCrawlRouter from "./tg-crawl";
+import generateImageRouter from "./generate-image";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(settingsRouter);
 router.use(modelsRouter);
 router.use(botRouter);
 router.use(tgCrawlRouter);
+router.use(generateImageRouter);
 
 export default router;

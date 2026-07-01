@@ -47,6 +47,9 @@ function persistCache(chatId: number, msgs: UnsavedMessage[]): void {
 // Load persisted messages on module init
 loadCacheFromStorage();
 
+// Re-export for use in ChatArea image generation
+export { persistCache };
+
 /** Get total unsaved tokens for a chat (used by Sidebar) */
 export function getUnsavedTokensForChat(chatId: number): number {
   const msgs = unsavedCache.get(chatId);
