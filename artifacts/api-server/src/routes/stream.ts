@@ -2443,7 +2443,28 @@ router.post("/chats/:id/stream", requireAuth, async (req, res) => {
     ];
 
     while (toolRound < MAX_TOOL_ROUNDS) {
-      const { hasTools, toolResults, statusMessages } = await executeTools(fullContent, chatRoot);
+      // Keepalive: send periodic pings to prevent Railway/proxy from killing the SSE connection
+      // during long-running tool execution (e.g. Telegram auth, web searches)
+      const keepalive = setInterval(() => {
+        try { res.write(": keepalive\n\n"); (res as any).flush?.(); } catch {}
+      }, 8_000);
+
+      // Send immediate status so the client knows tools are running
+      const toolNames = [
+        ...fullContent.matchAll(/<(?:create_file|read_file|list_files|edit_file|run_command|web_search|fetch_url|generate_image|analyze_telegram_bot|telegram_auth_start|telegram_auth_complete|crawl_telegram_bot|install_package|search_packages|git_clone|create_github_repo|create_pull_request)\b/g)
+      ].map(m => m[1]);
+      if (toolNames.length) {
+        send({ type: "status", status: `Выполняю: ${toolNames.join(", ")}...` });
+      }
+
+      let toolResult: { hasTools: boolean; toolResults: string; statusMessages: string[] };
+      try {
+        toolResult = await executeTools(fullContent, chatRoot);
+      } finally {
+        clearInterval(keepalive);
+      }
+
+      const { hasTools, toolResults, statusMessages } = toolResult;
 
       if (!hasTools) break; // No tools found — we're done
 
