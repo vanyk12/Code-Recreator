@@ -10,12 +10,10 @@ import modelsRouter from "./models";
 import botRouter from "./bot";
 import tgCrawlRouter from "./tg-crawl";
 import generateImageRouter from "./generate-image";
-import filesRoutes from "./files.js";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use("/files", filesRoutes);
 router.use(authConfigRouter);
 router.use(chatsRouter);
 router.use(streamRouter);

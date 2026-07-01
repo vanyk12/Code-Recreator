@@ -46,6 +46,8 @@ function buildTree(files: Array<{ id: number; path: string; content: string }>):
 
 export function FileExplorer({ chatId }: FileExplorerProps) {
   const { data: files = [], isLoading } = useListFiles(chatId);
+
+  useEffect(() => { if (fileRefreshKey) refetch(); }, [fileRefreshKey]);
   const createFile = useCreateFile();
   const deleteFile = useDeleteFile();
   const importZip = useImportZip();
