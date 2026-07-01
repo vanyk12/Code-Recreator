@@ -38,7 +38,6 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
   const [progressDetail, setProgressDetail] = useState("");
   const [error, setError] = useState("");
   const [needsSettings, setNeedsSettings] = useState(false);
-  const [needsPhone, setNeedsPhone] = useState(false);
   const [nodesFound, setNodesFound] = useState(0);
   const [currentDepth, setCurrentDepth] = useState(0);
 
@@ -74,15 +73,13 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
 
     fetch("/api/tg-crawl/check-settings")
       .then(r => r.json())
-      .then((data: { configured: boolean; hasSession: boolean; hasPhone: boolean }) => {
+      .then((data: { configured: boolean }) => {
         if (!data.configured) {
           setNeedsSettings(true);
-          setStep("form");
         } else {
           setNeedsSettings(false);
-          setNeedsPhone(!data.hasPhone);
-          setStep("form");
         }
+        setStep("form");
       })
       .catch(() => setStep("form"));
   }, [open]);
@@ -195,9 +192,8 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
       signal: abortRef.current.signal,
     }).then(response => {
       if (!response.ok) {
-        return response.json().then((err: { error?: string; needsSettings?: boolean; needsPhone?: boolean }) => {
+        return response.json().then((err: { error?: string; needsSettings?: boolean }) => {
           if (err.needsSettings) setNeedsSettings(true);
-          if (err.needsPhone) setNeedsPhone(true);
           throw new Error(err.error || `Ошибка ${response.status}`);
         });
       }
@@ -345,11 +341,7 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
                   <div className="flex items-start gap-2 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
                     <AlertCircle size={16} className="text-yellow-400 mt-0.5 shrink-0" />
                     <div className="text-xs text-yellow-200/80">
-                      Сначала настрой API ID и API Hash в{" "}
-                      <button onClick={() => { onClose(); }} className="underline text-yellow-300">
-                        Настройках
-                      </button>{" "}
-                      (my.telegram.org → API development tools)
+                      Telegram API не настроен на сервере. Попроси админа задать переменные окружения TELEGRAM_API_ID и TELEGRAM_API_HASH.
                     </div>
                   </div>
                 )}
@@ -366,28 +358,26 @@ export function TgCrawlModal({ open, onClose, onCrawlComplete }: Props) {
                   />
                 </div>
 
-                {needsPhone && (
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <Phone size={14} className="text-blue-400" />
-                      Номер телефона (Telegram)
-                    </label>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={e => setPhone(e.target.value)}
-                      placeholder="+7 900 123 4567"
-                      className="w-full bg-input border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
-                    />
-                    <p className="text-[10px] text-muted-foreground/60">
-                      Нужен для авторизации в Telegram. Сохраняется в настройках.
-                    </p>
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Phone size={14} className="text-blue-400" />
+                    Номер телефона (Telegram)
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+7 900 123 4567"
+                    className="w-full bg-input border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
+                  />
+                  <p className="text-[10px] text-muted-foreground/60">
+                    Нужен для авторизации. Сессия сохраняется — код только первый раз.
+                  </p>
+                </div>
 
                 <button
                   onClick={() => startCrawl(phone)}
-                  disabled={!botUsername.trim() || needsSettings || step === "checking"}
+                  disabled={!botUsername.trim() || !phone.trim() || needsSettings || step === "checking"}
                   className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-semibold text-sm text-white transition-all disabled:opacity-40"
                   style={{ background: "linear-gradient(135deg, hsl(25 95% 48%), hsl(213 94% 55%))" }}
                 >

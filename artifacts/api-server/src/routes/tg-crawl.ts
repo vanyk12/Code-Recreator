@@ -1,7 +1,5 @@
 import { Router } from "express";
 import { spawn } from "child_process";
-import { db, settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth";
 import path from "path";
 
@@ -33,29 +31,14 @@ router.post("/tg-crawl/start", requireAuth, async (req, res) => {
     return;
   }
 
-  // Получаем api_id и api_hash из настроек
-  let apiId = "";
-  let apiHash = "";
-  let userPhone = phone || "";
-
-  try {
-    const rows = await db.select().from(settingsTable);
-    const settingsMap: Record<string, string> = {};
-    for (const row of rows) {
-      settingsMap[row.key] = row.value;
-    }
-    apiId = settingsMap.telegram_api_id || "";
-    apiHash = settingsMap.telegram_api_hash || "";
-    if (!userPhone) {
-      userPhone = settingsMap.telegram_phone || "";
-    }
-  } catch {
-    // настройки недоступны
-  }
+  // api_id и api_hash берём из переменных окружения (Railway env vars)
+  const apiId = process.env.TELEGRAM_API_ID || "";
+  const apiHash = process.env.TELEGRAM_API_HASH || "";
+  const userPhone = phone || "";
 
   if (!apiId || !apiHash) {
     res.status(422).json({
-      error: "API ID и API Hash не настроены. Зайди в Настройки → Telegram API",
+      error: "Telegram API не настроен. Задай TELEGRAM_API_ID и TELEGRAM_API_HASH в переменных окружения.",
       needsSettings: true,
     });
     return;
@@ -225,37 +208,12 @@ router.post("/tg-crawl/stop", requireAuth, async (req, res) => {
  * Проверяет настроены ли TG API credentials.
  */
 router.get("/tg-crawl/check-settings", requireAuth, async (_req, res) => {
-  try {
-    const rows = await db.select().from(settingsTable);
-    const map: Record<string, string> = {};
-    for (const row of rows) {
-      map[row.key] = row.value;
-    }
+  const hasApiId = !!process.env.TELEGRAM_API_ID;
+  const hasApiHash = !!process.env.TELEGRAM_API_HASH;
 
-    const hasApiId = !!map.telegram_api_id;
-    const hasApiHash = !!map.telegram_api_hash;
-    const hasPhone = !!map.telegram_phone;
-
-    // Проверяем есть ли сессия
-    const fs = await import("fs/promises");
-    const phone = map.telegram_phone || "unknown";
-    const sessionFile = `/tmp/tg_sessions/${phone}.session`;
-    let hasSession = false;
-    try {
-      await fs.access(sessionFile);
-      hasSession = true;
-    } catch {
-      // нет файла сессии
-    }
-
-    res.json({
-      configured: hasApiId && hasApiHash,
-      hasSession,
-      hasPhone,
-    });
-  } catch {
-    res.json({ configured: false, hasSession: false, hasPhone: false });
-  }
+  res.json({
+    configured: hasApiId && hasApiHash,
+  });
 });
 
 export default router;

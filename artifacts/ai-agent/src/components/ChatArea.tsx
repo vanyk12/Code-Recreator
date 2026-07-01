@@ -559,14 +559,13 @@ function MessageContent({
   );
 }
 
-type AgentMode = "chat" | "plan" | "build" | "image";
+type AgentMode = "chat" | "plan" | "build";
 type ThinkingLevel = "auto" | "t1" | "t2" | "t3" | "t4";
 
 const MODES: { id: AgentMode; label: string; title: string }[] = [
   { id: "chat", label: "Чат", title: "Обсуждение без создания кода" },
   { id: "plan", label: "План", title: "Сначала план, потом код" },
   { id: "build", label: "Создать", title: "Сразу пишет код и файлы" },
-  { id: "image", label: "Картинка", title: "Генерация изображения по промпту" },
 ];
 
 const THINKING_LEVELS: { id: ThinkingLevel; label: string; title: string }[] = [
@@ -603,6 +602,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [cmdStates, setCmdStates] = useState<Map<number, Map<string, RunCmd>>>(new Map());
   const [agentMode, setAgentMode] = useState<AgentMode>("build");
+  const [imageMode, setImageMode] = useState(false);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -702,7 +702,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
     setAttachedFiles([]);
 
     // Image generation mode
-    if (agentMode === "image") {
+    if (imageMode) {
       generateImage(content);
       return;
     }
@@ -1018,25 +1018,23 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
           </div>
         )}
 
-        {/* Mode + thinking selectors */}
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <div className="flex items-center rounded-xl overflow-hidden shrink-0"
-            style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.08)" }}>
+        {/* Mode + thinking selectors — compact single row */}
+        <div className="flex items-center gap-1.5 mb-2 overflow-x-auto scrollbar-none">
+          <div className="flex items-center rounded-lg overflow-hidden shrink-0"
+            style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.06)" }}>
             {MODES.map((m, i) => (
               <button
                 key={m.id}
                 onClick={() => setAgentMode(m.id)}
                 title={m.title}
-                className={`px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                className={`px-2 py-0.5 text-[10px] font-semibold transition-all ${
                   agentMode === m.id
                     ? m.id === "build"
                       ? "bg-primary text-primary-foreground"
                       : m.id === "plan"
                       ? "bg-accent/80 text-accent-foreground"
-                      : m.id === "image"
-                      ? "bg-purple-500/80 text-purple-50"
                       : "bg-white/15 text-foreground"
-                    : "text-muted-foreground/50 hover:text-muted-foreground/80"
+                    : "text-muted-foreground/40 hover:text-muted-foreground/70"
                 } ${i > 0 ? "border-l border-white/8" : ""}`}
               >
                 {m.label}
@@ -1044,14 +1042,14 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
             ))}
           </div>
 
-          <div className="flex items-center rounded-xl overflow-hidden shrink-0"
-            style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="flex items-center rounded-lg overflow-hidden shrink-0"
+            style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.06)" }}>
             {THINKING_LEVELS.map((t, i) => (
               <button
                 key={t.id}
                 onClick={() => setThinkingLevel(t.id)}
                 title={t.title}
-                className={`px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                className={`px-2 py-0.5 text-[10px] font-semibold transition-all ${
                   thinkingLevel === t.id
                     ? "bg-white/12 text-foreground"
                     : "text-muted-foreground/40 hover:text-muted-foreground/70"
@@ -1084,7 +1082,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isListening ? "Слушаю..." : agentMode === "image" ? "Опиши картинку, которую хочешь..." : "Спросить SYNAPSE"}
+            placeholder={isListening ? "Слушаю..." : imageMode ? "Опиши картинку, которую хочешь..." : "Спросить SYNAPSE"}
             disabled={isStreaming || isGeneratingImage}
             className="flex-1 bg-transparent border-none outline-none px-2 py-3.5 text-sm text-foreground placeholder:text-muted-foreground/35 resize-none min-h-[52px] max-h-[180px] font-sans disabled:opacity-50"
             rows={1}
@@ -1094,10 +1092,18 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
 
           <button
             onClick={toggleVoice}
-            className={`shrink-0 p-2 transition-all rounded-xl mr-1 ${isListening ? "text-red-400 animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground/70"}`}
+            className={`shrink-0 p-2 transition-all rounded-xl mr-0.5 ${isListening ? "text-red-400 animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground/70"}`}
             title={isListening ? "Остановить запись" : "Голосовой ввод (ru)"}
           >
             {isListening ? <MicOff size={14} /> : <Mic size={14} />}
+          </button>
+
+          <button
+            onClick={() => setImageMode(v => !v)}
+            className={`shrink-0 p-2 transition-all rounded-xl mr-1 ${imageMode ? "text-purple-400 bg-purple-500/15" : "text-muted-foreground/40 hover:text-muted-foreground/70"}`}
+            title={imageMode ? "Режим чата" : "Генерация картинки"}
+          >
+            <FlaskConical size={14} />
           </button>
 
           {isStreaming ? (
@@ -1125,7 +1131,7 @@ export function ChatArea({ chatId, onFilesCreated }: { chatId: number | null; on
           <span className="flex items-center gap-1"><Zap size={9} />{displayTokens.toLocaleString("ru")} токенов</span>
           <span>{displayMsgCount} сообщений</span>
           <span className="font-mono">{chat?.model?.split("/")[1] || "—"}</span>
-          <span className="opacity-50">⌘Enter · 🎤 голос · 📎 файлы</span>
+          <span className="opacity-50">⌘Enter · 🎤 голос · 🧪 картинка · 📎 файлы</span>
         </div>
       </div>
     </div>

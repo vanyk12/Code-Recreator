@@ -71,6 +71,39 @@ Use XML tags (self-closing or with content) to invoke tools:
 ### System
 - \`<check_port number="3000" />\` — check if port is in use
 
+### 🐍 Code Execution
+- \`<run_python_repl>code here</run_python_repl>\` — **execute Python code** and get the result. Useful for data analysis, algorithms, calculations, testing snippets. Output (stdout + stderr) is returned. Timeout: 15 seconds. No file writes persist.
+- \`<api_request method="GET" url="https://api.example.com/data" headers='{"Authorization":"Bearer xxx"}' body='{"key":"value"}' />\` — make an HTTP request to any external API. Returns status code, headers (truncated) and response body. Useful for testing integrations.
+- \`<check_syntax path="file.py" />\` — static analysis: runs pylint (Python), eslint (JS/TS), or mypy. Returns errors and warnings without running the code. More thorough than lint_file.
+
+### 🌐 Web & Scraping
+- \`<crawl_website url="https://example.com" depth="1" />\` — **scrape any website**: fetch the page, extract text content, follow links up to N levels deep. Returns structured content (title, text, links, metadata). For cloning web services or collecting data.
+- \`<screenshot_url url="https://example.com" />\` — take a screenshot of a website. Returns the image URL. Useful for UI review, debugging layouts, or visual analysis.
+
+### 📄 Documents
+- \`<read_pdf path="file.pdf" />\` — extract text from a PDF file in the workspace. Returns all text content, page by page.
+- \`<read_docx path="file.docx" />\` — extract text from a Word document. Returns paragraphs, headings, and tables.
+
+### 🐘 Telegram
+- \`<send_telegram_message phone="+7XXXXXXXXXX" text="Hello!" />\` — send a Telegram message to a phone number (requires active Telegram session). Useful for testing bots directly from the chat.
+
+### 🗄️ Database
+- \`<create_database_schema name="myapp" tables='[{"name":"users","columns":[{"name":"id","type":"serial PRIMARY KEY"},{"name":"email","type":"varchar(255) UNIQUE"}]}]' dialect="postgres" />\` — generate a SQL schema and create migration files (Drizzle/Prisma/Alembic format based on project context). The schema JSON describes tables and columns.
+
+### 🐳 Docker
+- \`<manage_docker action="create" type="Dockerfile" base="python:3.11-slim" />\` — create a Dockerfile optimized for the project.
+- \`<manage_docker action="create" type="docker-compose" />\` — create a docker-compose.yml for the project.
+- \`<manage_docker action="check" />\` — check if Docker is available and show version.
+
+### 📚 GitHub Analysis
+- \`<read_github_repo repo="owner/repo" />\` — clone a public GitHub repo into workspace and analyze its structure. Returns file tree + key file contents (README, package.json, requirements.txt, etc.). Useful for studying or forking projects.
+
+### 🧠 AI-Powered Tools (no backend, just use your intelligence)
+- \`<generate_tests path="file.py" framework="pytest" />\` — analyze the code in the specified file and generate comprehensive unit tests. Write tests to a test file using <create_file>. Cover edge cases, error handling, and typical usage patterns.
+- \`<translate_code source_lang="python" target_lang="typescript" path="file.py" />\` — convert code from one language to another. Preserve logic, variable names, and comments. Write the translated file using <create_file>.
+- \`<explain_error error="paste full stack trace here" />\` — analyze a stack trace or error message, identify the root cause, search the web for known solutions (use <web_search>), and propose a fix. Apply the fix using <create_file>.
+- \`<generate_image prompt="description of image" />\` — describe an image you want to create. The system will generate it. Useful for icons, banners, placeholders for projects.
+
 ## CRITICAL RULES
 
 1. **YOU CAN AND MUST EDIT FILES** — Use \`<create_file path="...">\` to create or overwrite any file. This is your primary superpower. Never claim you cannot edit files.
@@ -1075,6 +1108,218 @@ async function checkPort(portNumber: number): Promise<string> {
   }
 }
 
+/* ── New tool helper functions ─────────────────────────────────────── */
+
+async function crawlWebsite(url: string, maxDepth: number): Promise<string> {
+  const visited = new Set<string>();
+  const results: string[] = [];
+
+  async function fetchPage(pageUrl: string, depth: number): Promise<void> {
+    if (depth > maxDepth || visited.has(pageUrl)) return;
+    visited.add(pageUrl);
+    try {
+      const content = await fetchUrlContent(pageUrl);
+      // Extract title
+      const titleMatch = content.match(/<title[^>]*>(.*?)<\/title>/is);
+      const title = titleMatch?.[1]?.trim() || "(без заголовка)";
+      // Strip HTML tags for text
+      const text = content.replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ").trim().slice(0, 3000);
+      // Extract links
+      const links = [...content.matchAll(/href=["']([^"']+)["']/gi)]
+        .map(m => m[1])
+        .filter(l => l.startsWith("http") && !l.includes("#") && !visited.has(l))
+        .slice(0, 10);
+      results.push(`**${title}** (${pageUrl})\n\n${text}`);
+      // Follow links
+      for (const link of links.slice(0, 3)) {
+        await fetchPage(link, depth + 1);
+      }
+    } catch {}
+  }
+
+  await fetchPage(url, 0);
+  return results.length ? results.join("\n\n---\n\n") : "⚠️ Не удалось загрузить страницу";
+}
+
+async function takeScreenshot(url: string, chatRoot: string): Promise<string> {
+  // Use a screenshot API service
+  const screenshotApi = `https://api.apiflash.com/v1/urltoimage?access_key=${process.env.APIFLASH_KEY || ""}&url=${encodeURIComponent(url)}&format=png&width=1280&height=800`;
+  try {
+    // Try with apiflash if key exists, otherwise use thumbnail.ws
+    if (process.env.APIFLASH_KEY) {
+      const resp = await fetch(screenshotApi);
+      if (resp.ok) {
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        const imgPath = path.join(chatRoot, "screenshot.png");
+        await fs.writeFile(imgPath, buffer);
+        return `✅ Скриншот сохранён: \`screenshot.png\`\n\n![screenshot](screenshot.png)`;
+      }
+    }
+    // Fallback: use screenshot.guru or just fetch the page
+    const pageContent = await fetchUrlContent(url);
+    const titleMatch = pageContent.match(/<title[^>]*>(.*?)<\/title>/is);
+    return `⚠️ Скриншот недоступен (нет API-ключа APIFLASH). Установи переменную окружения APIFLASH_KEY.\n\nСтраница: **${titleMatch?.[1] || url}** загружена, но скриншот не сделан.\n\nПолучи бесплатный ключ: https://apiflash.com/`;
+  } catch (e) {
+    return `⚠️ Ошибка: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+async function sendTelegramMessage(phone: string, text: string): Promise<string> {
+  const apiId = process.env.TELEGRAM_API_ID;
+  const apiHash = process.env.TELEGRAM_API_HASH;
+  if (!apiId || !apiHash) return "⚠️ Telegram API не настроен. Задай TELEGRAM_API_ID и TELEGRAM_API_HASH.";
+  // Check for existing session
+  const sessionFile = `/tmp/tg_sessions/${phone}.session`;
+  try {
+    await fs.access(sessionFile);
+  } catch {
+    return `⚠️ Нет активной сессии для ${phone}. Сначала авторизуйся через модалку «Парсинг бота».`;
+  }
+  const scriptPath = path.resolve(process.cwd(), "scripts/tg_send_message.py");
+  const { stdout, stderr } = await execAsync(
+    `python3 ${scriptPath} api_id=${apiId} api_hash=${apiHash} phone=${phone} session_dir=/tmp/tg_sessions message=${JSON.stringify(text)}`,
+    { timeout: 30000, maxBuffer: 512 * 1024 }
+  );
+  const err = (stderr || "").trim();
+  if (err && !stdout) return `⚠️ ${err}`;
+  return `✅ Сообщение отправлено на ${phone}\n\n${stdout || ""}`.trim();
+}
+
+async function createDatabaseSchema(name: string, tables: any[], dialect: string, chatRoot: string): Promise<string> {
+  const lines: string[] = [];
+  lines.push(`-- Schema: ${name}`);
+  lines.push(`-- Dialect: ${dialect}`);
+  lines.push(`-- Generated by SYNAPSE AGENT\n`);
+  for (const table of tables) {
+    const cols = (table.columns || []).map((c: any) => `  ${c.name} ${c.type}`).join(",\n");
+    lines.push(`CREATE TABLE IF NOT EXISTS ${table.name} (\n${cols}\n);`);
+  }
+  const sql = lines.join("\n\n");
+  const sqlPath = path.join(chatRoot, `${name}_schema.sql`);
+  await fs.writeFile(sqlPath, sql, "utf-8");
+  // Also create Drizzle schema if TypeScript project detected
+  try {
+    await fs.access(path.join(chatRoot, "package.json"));
+    const drizzleLines: string[] = [];
+    drizzleLines.push(`// Drizzle ORM Schema: ${name}`);
+    drizzleLines.push(`import { pgTable, serial, varchar, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";\n`);
+    for (const table of tables) {
+      const cols = (table.columns || []).map((c: any) => {
+        const colName = c.name;
+        let drizzleType = "text";
+        const t = (c.type || "").toLowerCase();
+        if (t.includes("serial") || t.includes("int")) drizzleType = "serial()";
+        else if (t.includes("varchar") || t.includes("text")) drizzleType = `varchar("${colName}", { length: 255 })`;
+        else if (t.includes("boolean") || t.includes("bool")) drizzleType = "boolean()";
+        else if (t.includes("timestamp") || t.includes("date")) drizzleType = "timestamp()";
+        else if (t.includes("float") || t.includes("numeric") || t.includes("decimal")) drizzleType = "numeric()";
+        else drizzleType = `text("${colName}")`;
+        return `  ${colName}: ${drizzleType}`;
+      }).join(",\n");
+      drizzleLines.push(`export const ${table.name} = pgTable("${table.name}", {\n${cols}\n});\n`);
+    }
+    const drizzlePath = path.join(chatRoot, `db/schema.ts`);
+    await fs.mkdir(path.dirname(drizzlePath), { recursive: true });
+    await fs.writeFile(drizzlePath, drizzleLines.join("\n"), "utf-8");
+    return `✅ Файлы созданы:\n- \`${name}_schema.sql\` (чистый SQL)\n- \`db/schema.ts\` (Drizzle ORM)\n\n\`\`\`sql\n${sql}\n\`\`\``;
+  } catch {
+    return `✅ SQL-схема сохранена: \`${name}_schema.sql\`\n\n\`\`\`sql\n${sql}\n\`\`\``;
+  }
+}
+
+async function manageDocker(action: string, type: string | undefined, base: string | undefined, chatRoot: string): Promise<string> {
+  if (action === "check") {
+    try {
+      const { stdout } = await execAsync("docker --version 2>&1 && docker compose version 2>&1", { timeout: 5000 });
+      return `✅ Docker доступен:\n\`\`\`\n${stdout.trim()}\n\`\`\``;
+    } catch {
+      return "⚠️ Docker не доступен в данном окружении.";
+    }
+  }
+  if (action === "create" && type === "Dockerfile") {
+    const imgBase = base || "node:20-alpine";
+    // Detect project type
+    let hasPackageJson = false, hasRequirements = false, hasPyProject = false;
+    try { await fs.access(path.join(chatRoot, "package.json")); hasPackageJson = true; } catch {}
+    try { await fs.access(path.join(chatRoot, "requirements.txt")); hasRequirements = true; } catch {}
+    try { await fs.access(path.join(chatRoot, "pyproject.toml")); hasPyProject = true; } catch {}
+    let dockerfile = "";
+    if (hasPackageJson) {
+      dockerfile = `FROM ${imgBase.includes("python") ? "node:20-alpine" : imgBase}
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --production
+COPY . .
+EXPOSE 3000
+CMD ["node", "index.js"]
+`;
+    } else if (hasRequirements || hasPyProject) {
+      dockerfile = `FROM ${imgBase.includes("node") ? "python:3.11-slim" : imgBase}
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["python", "main.py"]
+`;
+    } else {
+      dockerfile = `FROM ${imgBase}
+WORKDIR /app
+COPY . .
+EXPOSE 3000
+CMD ["sh", "-c", "node index.js 2>/dev/null || python main.py 2>/dev/null || echo 'No entry point found'"]
+`;
+    }
+    await fs.writeFile(path.join(chatRoot, "Dockerfile"), dockerfile, "utf-8");
+    return `✅ Dockerfile создан:\n\n\`\`\`dockerfile\n${dockerfile}\n\`\`\``;
+  }
+  if (action === "create" && type === "docker-compose") {
+    const compose = `version: "3.8"
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped
+`;
+    await fs.writeFile(path.join(chatRoot, "docker-compose.yml"), compose, "utf-8");
+    return `✅ docker-compose.yml создан:\n\n\`\`\`yaml\n${compose}\n\`\`\``;
+  }
+  return `⚠️ Неизвестное действие: ${action}/${type || "-"}`;
+}
+
+async function readGithubRepo(repo: string, chatRoot: string): Promise<string> {
+  const repoDir = path.join(chatRoot, repo.replace("/", "_"));
+  // Remove if already exists
+  await fs.rm(repoDir, { recursive: true, force: true }).catch(() => {});
+  const { stdout: cloneOut, stderr: cloneErr } = await execAsync(
+    `git clone --depth 1 https://github.com/${repo}.git "${repoDir}" 2>&1`,
+    { timeout: 60000, maxBuffer: 1024 * 1024 }
+  );
+  if (cloneErr && !cloneOut) return `⚠️ Ошибка клонирования: ${cloneErr}`;
+  // Get file tree
+  const tree = await buildFileTree(repoDir, "", 2);
+  // Read key files
+  const keyFiles = ["README.md", "README.txt", "package.json", "requirements.txt", "pyproject.toml", "Cargo.toml", "go.mod"];
+  const keyContents: string[] = [];
+  for (const f of keyFiles) {
+    try {
+      const content = await fs.readFile(path.join(repoDir, f), "utf-8");
+      const truncated = content.length > 2000 ? content.slice(0, 2000) + "\n... (обрезано)" : content;
+      keyContents.push(`**${f}:**\n\`\`\`\n${truncated}\n\`\`\``);
+    } catch {}
+  }
+  let result = `✅ Репозиторий \`${repo}\` клонирован в workspace\n\n### Структура\n\`\`\`\n${tree.trim()}\n\`\`\``;
+  if (keyContents.length) {
+    result += `\n\n### Ключевые файлы\n\n${keyContents.join("\n\n")}`;
+  }
+  return result;
+}
+
 /* ── Execute all tool calls found in model output ───────────────────── */
 async function executeTools(
   fullContent: string, chatRoot: string
@@ -1460,6 +1705,230 @@ async function executeTools(
         resultParts.push(`### 🔌 check_port(${port})\n${result}`);
       } catch (e) {
         resultParts.push(`### 🔌 check_port(${port})\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // ── NEW TOOLS ──
+
+  // run_python_repl
+  const pythonReplMatches = [...fullContent.matchAll(/<run_python_repl>([\s\S]*?)<\/run_python_repl>/g)];
+  if (pythonReplMatches.length) {
+    statusMessages.push("Выполняю Python-код...");
+    for (const m of pythonReplMatches) {
+      const code = m[1].trim();
+      if (!code) continue;
+      try {
+        const { stdout, stderr } = await execAsync(`python3 -c ${JSON.stringify(code)}`, {
+          cwd: chatRoot, timeout: 15000, maxBuffer: 1024 * 1024,
+        });
+        const output = (stdout || "").trim();
+        const err = (stderr || "").trim();
+        const result = output + (err ? `\n\n⚠️ stderr:\n${err}` : "");
+        resultParts.push(`### 🐍 run_python_repl\n\`\`\`\n${result || "(пустой вывод)"}\n\`\`\``);
+      } catch (e: any) {
+        const msg = e.stderr || e.message || String(e);
+        resultParts.push(`### 🐍 run_python_repl\n\`\`\`\n${msg.slice(0, 3000)}\n\`\`\``);
+      }
+    }
+  }
+
+  // api_request
+  const apiReqMatches = [...fullContent.matchAll(/<api_request\s+method="([^"]+)"\s+url="([^"]+)"(?:\s+headers='([^']*)')?(?:\s+body='([^']*)')?\s*\/>/g)];
+  if (apiReqMatches.length) {
+    statusMessages.push("Делаю API-запрос...");
+    for (const m of apiReqMatches) {
+      const method = m[1].toUpperCase();
+      const url = m[2];
+      let headers: Record<string, string> = { "Content-Type": "application/json" };
+      try { if (m[3]) headers = { ...headers, ...JSON.parse(m[3]) }; } catch {}
+      let body: string | undefined;
+      try { if (m[4]) body = m[4]; } catch {}
+      try {
+        const fetchOpts: RequestInit = { method, headers };
+        if (body && method !== "GET") fetchOpts.body = body;
+        const resp = await fetch(url, fetchOpts);
+        const respBody = await resp.text();
+        const truncBody = respBody.length > 4000 ? respBody.slice(0, 4000) + "\n... (обрезано)" : respBody;
+        resultParts.push(`### 🌐 api_request(${method} ${url})\n**Status:** ${resp.status} ${resp.statusText}\n\n\`\`\`json\n${truncBody}\n\`\`\``);
+      } catch (e) {
+        resultParts.push(`### 🌐 api_request\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // check_syntax
+  const syntaxMatches = [...fullContent.matchAll(/<check_syntax\s+path="([^"]+)"\s*\/>/g)];
+  if (syntaxMatches.length) {
+    statusMessages.push("Проверяю синтаксис...");
+    for (const m of syntaxMatches) {
+      const relPath = m[1];
+      try {
+        const absPath = safePath(relPath, chatRoot);
+        const ext = path.extname(relPath).slice(1).toLowerCase();
+        let cmd = "";
+        if (ext === "py") cmd = `cd "${chatRoot}" && python3 -m py_compile "${absPath}" 2>&1 && echo "OK: no syntax errors"`;
+        else if (["ts", "tsx", "js", "jsx"].includes(ext)) cmd = `cd "${chatRoot}" && npx eslint --no-eslintrc --parser-options=ecmaVersion:latest "${absPath}" 2>&1 || true`;
+        else if (ext === "go") cmd = `cd "${chatRoot}" && go vet "${absPath}" 2>&1 || true`;
+        else { resultParts.push(`### 🔍 check_syntax("${relPath}")\n⚠️ Неподдерживаемый формат: .${ext}`); continue; }
+        const { stdout, stderr } = await execAsync(cmd, { timeout: 30000, maxBuffer: 512 * 1024 });
+        const output = (stdout || stderr || "").trim();
+        resultParts.push(`### 🔍 check_syntax("${relPath}")\n\`\`\`\n${output || "Ошибок не найдено"}\n\`\`\``);
+      } catch (e: any) {
+        resultParts.push(`### 🔍 check_syntax("${relPath}")\n\`\`\`\n${e.stderr || e.message || String(e)}\n\`\`\``);
+      }
+    }
+  }
+
+  // crawl_website
+  const crawlWebMatches = [...fullContent.matchAll(/<crawl_website\s+url="([^"]+)"(?:\s+depth="(\d+)")?\s*\/>/g)];
+  if (crawlWebMatches.length) {
+    statusMessages.push("Парсю сайт...");
+    for (const m of crawlWebMatches) {
+      const url = m[1];
+      const depth = parseInt(m[2] || "1");
+      try {
+        const result = await crawlWebsite(url, Math.min(depth, 2));
+        resultParts.push(`### 🕷️ crawl_website("${url}")\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 🕷️ crawl_website("${url}")\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // screenshot_url
+  const screenshotMatches = [...fullContent.matchAll(/<screenshot_url\s+url="([^"]+)"\s*\/>/g)];
+  if (screenshotMatches.length) {
+    statusMessages.push("Делаю скриншот...");
+    for (const m of screenshotMatches) {
+      const url = m[1];
+      try {
+        const result = await takeScreenshot(url, chatRoot);
+        resultParts.push(`### 📸 screenshot_url("${url}")\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 📸 screenshot_url("${url}")\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // read_pdf
+  const pdfMatches = [...fullContent.matchAll(/<read_pdf\s+path="([^"]+)"\s*\/>/g)];
+  if (pdfMatches.length) {
+    statusMessages.push("Читаю PDF...");
+    for (const m of pdfMatches) {
+      const relPath = m[1];
+      try {
+        const absPath = safePath(relPath, chatRoot);
+        const { stdout } = await execAsync(
+          `python3 -c "
+import subprocess, sys
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'PyPDF2'], stderr=subprocess.DEVNULL)
+from PyPDF2 import PdfReader
+reader = PdfReader('${absPath.replace(/'/g, "\\'")}')
+for i, page in enumerate(reader.pages):
+    text = page.extract_text() or ''
+    print(f'--- Page {i+1} ---')
+    print(text[:3000])
+" 2>&1`,
+          { timeout: 30000, maxBuffer: 1024 * 1024 }
+        );
+        resultParts.push(`### 📄 read_pdf("${relPath}")\n\`\`\`\n${(stdout || "(пустой документ)").trim()}\n\`\`\``);
+      } catch (e: any) {
+        resultParts.push(`### 📄 read_pdf("${relPath}")\n⚠️ ${e.stderr || e.message || String(e)}`);
+      }
+    }
+  }
+
+  // read_docx
+  const docxMatches = [...fullContent.matchAll(/<read_docx\s+path="([^"]+)"\s*\/>/g)];
+  if (docxMatches.length) {
+    statusMessages.push("Читаю DOCX...");
+    for (const m of docxMatches) {
+      const relPath = m[1];
+      try {
+        const absPath = safePath(relPath, chatRoot);
+        const { stdout } = await execAsync(
+          `python3 -c "
+import subprocess, sys
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'python-docx'], stderr=subprocess.DEVNULL)
+from docx import Document
+doc = Document('${absPath.replace(/'/g, "\\'")}')
+for p in doc.paragraphs:
+    if p.text.strip(): print(p.text)
+for table in doc.tables:
+    print('--- TABLE ---')
+    for row in table.rows:
+        print(' | '.join(cell.text for cell in row.cells))
+" 2>&1`,
+          { timeout: 30000, maxBuffer: 1024 * 1024 }
+        );
+        resultParts.push(`### 📄 read_docx("${relPath}")\n\`\`\`\n${(stdout || "(пустой документ)").trim()}\n\`\`\``);
+      } catch (e: any) {
+        resultParts.push(`### 📄 read_docx("${relPath}")\n⚠️ ${e.stderr || e.message || String(e)}`);
+      }
+    }
+  }
+
+  // send_telegram_message
+  const tgSendMatches = [...fullContent.matchAll(/<send_telegram_message\s+phone="([^"]+)"\s+text="([^"]+)"\s*\/>/g)];
+  if (tgSendMatches.length) {
+    statusMessages.push("Отправляю сообщение в Telegram...");
+    for (const m of tgSendMatches) {
+      const phone = m[1];
+      const text = m[2];
+      try {
+        const result = await sendTelegramMessage(phone, text);
+        resultParts.push(`### 📱 send_telegram_message\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 📱 send_telegram_message\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // create_database_schema
+  const dbSchemaMatches = [...fullContent.matchAll(/<create_database_schema\s+name="([^"]+)"\s+tables='([^']*)'(?:\s+dialect="([^"]+)")?\s*\/>/g)];
+  if (dbSchemaMatches.length) {
+    statusMessages.push("Создаю схему БД...");
+    for (const m of dbSchemaMatches) {
+      const name = m[1];
+      let tables: any[];
+      try { tables = JSON.parse(m[2]); } catch { resultParts.push(`### 🗄️ create_database_schema\n⚠️ Невалидный JSON в tables`); continue; }
+      const dialect = m[3] || "postgres";
+      try {
+        const result = await createDatabaseSchema(name, tables, dialect, chatRoot);
+        resultParts.push(`### 🗄️ create_database_schema("${name}")\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 🗄️ create_database_schema\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // manage_docker
+  const dockerMatches = [...fullContent.matchAll(/<manage_docker\s+action="([^"]+)"(?:\s+type="([^"]*)")?(?:\s+base="([^"]*)")?\s*\/>/g)];
+  if (dockerMatches.length) {
+    statusMessages.push("Работаю с Docker...");
+    for (const m of dockerMatches) {
+      const action = m[1]; const type = m[2]; const base = m[3];
+      try {
+        const result = await manageDocker(action, type, base, chatRoot);
+        resultParts.push(`### 🐳 manage_docker(action="${action}"${type ? `, type="${type}"` : ""})\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 🐳 manage_docker\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // read_github_repo
+  const ghRepoMatches = [...fullContent.matchAll(/<read_github_repo\s+repo="([^"]+)"\s*\/>/g)];
+  if (ghRepoMatches.length) {
+    statusMessages.push("Клонирую GitHub-репозиторий...");
+    for (const m of ghRepoMatches) {
+      const repo = m[1];
+      try {
+        const result = await readGithubRepo(repo, chatRoot);
+        resultParts.push(`### 📚 read_github_repo("${repo}")\n${result}`);
+      } catch (e) {
+        resultParts.push(`### 📚 read_github_repo("${repo}")\n⚠️ ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }

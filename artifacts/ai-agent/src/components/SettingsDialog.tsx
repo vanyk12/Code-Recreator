@@ -1,12 +1,9 @@
 import { useState, useEffect } from "react";
-import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle, Send } from "lucide-react";
+import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle } from "lucide-react";
 
 interface Settings {
   openrouterKey: string;
   defaultModel: string;
-  telegramApiId: string;
-  telegramApiHash: string;
-  telegramPhone: string;
   imageModel: string;
 }
 
@@ -18,9 +15,8 @@ interface Props {
 }
 
 export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Props) {
-  const [settings, setSettings] = useState<Settings>({ openrouterKey: "", defaultModel: "anthropic/claude-3.5-sonnet", telegramApiId: "", telegramApiHash: "", telegramPhone: "", imageModel: "openai/dall-e-3" });
+  const [settings, setSettings] = useState<Settings>({ openrouterKey: "", defaultModel: "anthropic/claude-3.5-sonnet", imageModel: "openai/dall-e-3" });
   const [showKey, setShowKey] = useState(false);
-  const [showTgHash, setShowTgHash] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [keyStored, setKeyStored] = useState(false);
@@ -35,9 +31,6 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
           setSettings({
             openrouterKey: stored ? "" : (data.openrouter_key || ""),
             defaultModel: data.default_model || "anthropic/claude-3.5-sonnet",
-            telegramApiId: data.telegram_api_id || "",
-            telegramApiHash: data.telegram_api_hash || "",
-            telegramPhone: data.telegram_phone || "",
             imageModel: data.image_model || "openai/dall-e-3",
           });
         })
@@ -51,15 +44,6 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
       const body: Record<string, string> = { default_model: settings.defaultModel };
       if (settings.openrouterKey.trim()) {
         body.openrouter_key = settings.openrouterKey.trim();
-      }
-      if (settings.telegramApiId.trim()) {
-        body.telegram_api_id = settings.telegramApiId.trim();
-      }
-      if (settings.telegramApiHash.trim()) {
-        body.telegram_api_hash = settings.telegramApiHash.trim();
-      }
-      if (settings.telegramPhone.trim()) {
-        body.telegram_phone = settings.telegramPhone.trim();
       }
       if (settings.imageModel.trim()) {
         body.image_model = settings.imageModel.trim();
@@ -111,9 +95,9 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
             </div>
           </div>
 
-          <div className="settings-body p-6 space-y-5">
+          <div className="settings-body p-5 space-y-4 max-h-[60vh] overflow-y-auto scrollbar-thin">
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Key size={14} className="text-primary" />
                 Токен OpenRouter API
@@ -125,8 +109,8 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
                 </a>
               </p>
               {keyStored && !settings.openrouterKey && (
-                <p className="text-xs text-green-400/70 flex items-center gap-1 mb-1">
-                  ✓ Токен уже сохранён — оставь поле пустым чтобы не менять его
+                <p className="text-xs text-green-400/70 flex items-center gap-1">
+                  ✓ Токен уже сохранён — оставь пустым чтобы не менять
                 </p>
               )}
               <div className="relative">
@@ -134,8 +118,8 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
                   type={showKey ? "text" : "password"}
                   value={settings.openrouterKey}
                   onChange={e => { setSettings(s => ({ ...s, openrouterKey: e.target.value })); setKeyStored(false); }}
-                  placeholder={keyStored && !settings.openrouterKey ? "● ● ● сохранён (не изменится) ● ● ●" : "sk-or-v1-..."}
-                  className="w-full bg-input border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
+                  placeholder={keyStored && !settings.openrouterKey ? "● ● ● сохранён ● ● ●" : "sk-or-v1-..."}
+                  className="w-full bg-input border border-border rounded-xl px-3 py-2 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary font-mono"
                   data-testid="input-openrouter-key"
                 />
                 <button type="button" onClick={() => setShowKey(v => !v)}
@@ -145,119 +129,75 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Cpu size={14} className="text-accent" />
                 Модель по умолчанию
               </label>
-              <p className="text-xs text-muted-foreground">
-                Идентификатор модели OpenRouter (например: <span className="font-mono text-accent/80">anthropic/claude-3.5-sonnet</span>)
-              </p>
-              <input
-                type="text"
-                value={settings.defaultModel}
-                onChange={e => setSettings(s => ({ ...s, defaultModel: e.target.value }))}
-                placeholder="anthropic/claude-3.5-sonnet"
-                className="w-full bg-input border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent font-mono"
-                data-testid="input-default-model"
-              />
-              <div className="grid grid-cols-2 gap-2 mt-1">
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={settings.defaultModel}
+                  onChange={e => setSettings(s => ({ ...s, defaultModel: e.target.value }))}
+                  placeholder="anthropic/claude-3.5-sonnet"
+                  className="flex-1 min-w-0 bg-input border border-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent font-mono"
+                  data-testid="input-default-model"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
                 {[
-                  "anthropic/claude-3.5-sonnet",
-                  "openai/gpt-4o",
-                  "google/gemini-2.0-flash-001",
-                  "deepseek/deepseek-r1",
-                ].map(m => (
-                  <button key={m} onClick={() => setSettings(s => ({ ...s, defaultModel: m }))}
-                    className={`text-left px-2.5 py-1.5 rounded-xl text-xs font-mono truncate transition-colors border ${
+                  ["claude-3.5-sonnet", "anthropic/claude-3.5-sonnet"],
+                  ["gpt-4o", "openai/gpt-4o"],
+                  ["gemini-2.0-flash", "google/gemini-2.0-flash-001"],
+                  ["deepseek-r1", "deepseek/deepseek-r1"],
+                ].map(([label, m]) => (
+                  <button key={m} onClick={() => setSettings(s => ({ ...s, defaultModel: m as string }))}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition-colors border ${
                       settings.defaultModel === m
                         ? "bg-primary/20 border-primary/40 text-primary"
                         : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-border/80"
                     }`}>
-                    {m.split("/")[1]}
+                    {label}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Send size={14} className="text-blue-400" />
-                Telegram API (для парсинга ботов)
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Получи на{" "}
-                <a href="https://my.telegram.org" target="blank" rel="noreferrer" className="text-accent underline hover:text-accent/80">
-                  my.telegram.org
-                </a>{" "}
-                → API development tools
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  value={settings.telegramApiId}
-                  onChange={e => setSettings(s => ({ ...s, telegramApiId: e.target.value }))}
-                  placeholder="API ID (число)"
-                  className="bg-input border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
-                />
-                <input
-                  type={showTgHash ? "text" : "password"}
-                  value={settings.telegramApiHash}
-                  onChange={e => setSettings(s => ({ ...s, telegramApiHash: e.target.value }))}
-                  placeholder="API Hash"
-                  className="bg-input border border-border rounded-xl px-3 py-2.5 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
-                />
-              </div>
-              <input
-                type="tel"
-                value={settings.telegramPhone}
-                onChange={e => setSettings(s => ({ ...s, telegramPhone: e.target.value }))}
-                placeholder="Телефон для авторизации (например: +79001234567)"
-                className="w-full bg-input border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
-              />
-              <p className="text-[10px] text-muted-foreground/50">Номер нужен один раз — дальше сессия сохраняется</p>
-              <button type="button" onClick={() => setShowTgHash(v => !v)} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">
-                {showTgHash ? "Скрыть" : "Показать"} API Hash
-              </button>
-            </div>
-
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Cpu size={14} className="text-purple-400" />
                 Модель генерации картинок
               </label>
-              <p className="text-xs text-muted-foreground">
-                Используется в режиме «Картинка» в чате. Через{" "}
-                <span className="font-mono text-accent/80">OpenRouter</span>.
-              </p>
-              <input
-                type="text"
-                value={settings.imageModel}
-                onChange={e => setSettings(s => ({ ...s, imageModel: e.target.value }))}
-                placeholder="openai/dall-e-3"
-                className="w-full bg-input border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400 font-mono"
-              />
-              <div className="grid grid-cols-3 gap-2 mt-1">
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={settings.imageModel}
+                  onChange={e => setSettings(s => ({ ...s, imageModel: e.target.value }))}
+                  placeholder="openai/dall-e-3"
+                  className="flex-1 min-w-0 bg-input border border-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-purple-400 focus:border-purple-400 font-mono"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
                 {[
-                  "openai/dall-e-3",
-                  "openai/dall-e-3-hd",
-                  "stabilityai/stable-diffusion-xl-1024-v1-0",
-                ].map(m => (
-                  <button key={m} onClick={() => setSettings(s => ({ ...s, imageModel: m }))}
-                    className={`text-left px-2 py-1.5 rounded-xl text-[10px] font-mono truncate transition-colors border ${
+                  ["dall-e-3", "openai/dall-e-3"],
+                  ["dall-e-3-hd", "openai/dall-e-3-hd"],
+                  ["stable-diffusion-xl", "stabilityai/stable-diffusion-xl-1024-v1-0"],
+                ].map(([label, m]) => (
+                  <button key={m} onClick={() => setSettings(s => ({ ...s, imageModel: m as string }))}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition-colors border ${
                       settings.imageModel === m
                         ? "bg-purple-500/20 border-purple-400/40 text-purple-300"
                         : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-border/80"
                     }`}>
-                    {m.split("/")[1]}
+                    {label}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-1">
               <button onClick={handleSave} disabled={saving}
-                className="save-btn w-full relative overflow-hidden flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-semibold text-sm text-white transition-all disabled:opacity-70"
+                className="save-btn w-full relative overflow-hidden flex items-center justify-center gap-2 py-2 px-4 rounded-xl font-semibold text-sm text-white transition-all disabled:opacity-70"
                 data-testid="button-save-settings">
                 <div className="shimmer-btn-bg absolute inset-0" />
                 <span className="relative z-10 flex items-center gap-2">
@@ -284,6 +224,10 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
           animation: shimmer-shift 2s ease-in-out infinite alternate;
         }
         @keyframes shimmer-shift { 0% { background-position: 0% 0%; } 100% { background-position: 100% 100%; } }
+        .scrollbar-thin::-webkit-scrollbar { width: 5px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: hsl(220 30% 30%); border-radius: 10px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: hsl(220 30% 40%); }
       `}</style>
     </div>
   );
