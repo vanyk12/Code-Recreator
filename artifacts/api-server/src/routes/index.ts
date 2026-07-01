@@ -8,6 +8,7 @@ import terminalRouter from "./terminal";
 import settingsRouter from "./settings";
 import modelsRouter from "./models";
 import botRouter from "./bot";
+import tgCrawlRouter from "./tg-crawl";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(terminalRouter);
 router.use(settingsRouter);
 router.use(modelsRouter);
 router.use(botRouter);
+router.use(tgCrawlRouter);
 
 export default router;

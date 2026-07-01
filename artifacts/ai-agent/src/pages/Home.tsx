@@ -3,19 +3,53 @@ import { useListChats } from "@workspace/api-client-react";
 import { ChatArea } from "@/components/ChatArea";
 import { Sidebar } from "@/components/Sidebar";
 import { RightPanel } from "@/components/RightPanel";
+import { TgCrawlModal } from "@/components/TgCrawlModal";
 import { useAuth, useTheme } from "@/App";
 import { getSupabaseState } from "@/lib/supabase";
-import { Sun, Moon, Bot, MessageSquare, Wrench, Search } from "lucide-react";
+import { Bot, MessageSquare, Wrench, Search } from "lucide-react";
+
+interface CrawlResult {
+  bot_info: { first_name: string; username: string; description: string };
+  bot_commands: Array<{ command: string; description: string }>;
+  menu_nodes: Array<{
+    path: string;
+    label: string;
+    text: string;
+    buttons: Array<Array<{ label: string; callback?: string; url?: string }>>;
+    depth: number;
+  }>;
+  total_nodes: number;
+  structure_text: string;
+}
 
 export function Home() {
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
+  const [crawlModalOpen, setCrawlModalOpen] = useState(false);
   const { data: chats } = useListChats();
   const { user } = useAuth();
   const { theme, toggle } = useTheme();
 
   const handleFilesCreated = useCallback(() => {
     setFileRefreshKey(k => k + 1);
+  }, []);
+
+  const handleCrawlComplete = useCallback((result: CrawlResult, botUsername: string) => {
+    // Закрываем модал и создаём чат с результатами парсинга
+    setCrawlModalOpen(false);
+
+    const structureText = result.structure_text || JSON.stringify(result.menu_nodes, null, 2);
+
+    const prompt =
+      `Вот реальные данные парсинга бота @${botUsername} (собрано через Telethon, ${result.total_nodes} узлов меню):\n\n` +
+      `${structureText}\n\n` +
+      `Создай полный рабочий клон этого бота на основе РЕАЛЬНЫХ данных выше. ` +
+      `Включи все меню, кнопки, логику. Файлы: main.py, requirements.txt, .env.example, config.py, database.py. ` +
+      `Если есть команды (/start, /help и т.д.) — реализуй их. ` +
+      `Если в текстах упоминаются платёжные системы (Qiwi, YooMoney, крипта) — добавь заглушки для них. ` +
+      `Создай ВСЕ файлы через <create_file>.`;
+
+    handleQuickStart(prompt, `Парсинг @${botUsername}`);
   }, []);
 
   return (
@@ -46,20 +80,8 @@ export function Home() {
               <QuickAction
                 icon={<Bot size={22} />}
                 label="Парсинг бота"
-                desc="Обойти меню + веб-часть"
-                onClick={() => {
-                  const username = prompt("Введите юзернейм бота (без @):\n\nПример: zipppppppppaaaabot");
-                  if (username?.trim()) {
-                    handleQuickStart(
-                      `Сделай полный парсинг бота @${username.trim()}. ` +
-                      `Используй analyze_telegram_bot для быстрого анализа, потом crawl_telegram_bot для глубокого обхода. ` +
-                      `Если у бота есть веб-часть (MiniApp/WebView кнопки) — тоже спарси их содержимое. ` +
-                      `Потом создай полный рабочий клон бота со всеми файлами (main.py, requirements.txt, .env.example). ` +
-                      `Если была веб-часть — создай и веб-файлы (index.html, app.js, style.css).`,
-                      `Парсинг @${username.trim()}`
-                    );
-                  }
-                }}
+                desc="Реальный обход через Telethon"
+                onClick={() => setCrawlModalOpen(true)}
               />
               <QuickAction
                 icon={<MessageSquare size={22} />}
@@ -111,6 +133,12 @@ export function Home() {
           </div>
         </div>
       )}
+
+      <TgCrawlModal
+        open={crawlModalOpen}
+        onClose={() => setCrawlModalOpen(false)}
+        onCrawlComplete={handleCrawlComplete}
+      />
     </div>
   );
 

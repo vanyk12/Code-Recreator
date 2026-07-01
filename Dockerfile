@@ -9,6 +9,16 @@ FROM node:20-slim AS base
 
 WORKDIR /app
 
+# --- Install Python 3 + Telethon (for TG bot crawling) ---
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-pip python3-venv && \
+    rm -rf /var/lib/apt/lists/* && \
+    python3 -m venv /opt/py-venv && \
+    /opt/py-venv/bin/pip install --no-cache-dir telethon && \
+    ln -sf /opt/py-venv/bin/python3 /usr/local/bin/python3
+
+ENV PATH="/opt/py-venv/bin:${PATH}"
+
 # --- Install pnpm ---
 RUN corepack enable && corepack prepare pnpm@9 --activate
 

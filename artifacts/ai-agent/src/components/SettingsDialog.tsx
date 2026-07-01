@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
-import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle } from "lucide-react";
+import { X, Key, Cpu, Eye, EyeOff, Save, CheckCircle, Send } from "lucide-react";
 
 interface Settings {
   openrouterKey: string;
   defaultModel: string;
+  telegramApiId: string;
+  telegramApiHash: string;
+  telegramPhone: string;
 }
 
 interface Props {
@@ -14,8 +17,9 @@ interface Props {
 }
 
 export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Props) {
-  const [settings, setSettings] = useState<Settings>({ openrouterKey: "", defaultModel: "anthropic/claude-3.5-sonnet" });
+  const [settings, setSettings] = useState<Settings>({ openrouterKey: "", defaultModel: "anthropic/claude-3.5-sonnet", telegramApiId: "", telegramApiHash: "", telegramPhone: "" });
   const [showKey, setShowKey] = useState(false);
+  const [showTgHash, setShowTgHash] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [keyStored, setKeyStored] = useState(false);
@@ -30,6 +34,9 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
           setSettings({
             openrouterKey: stored ? "" : (data.openrouter_key || ""),
             defaultModel: data.default_model || "anthropic/claude-3.5-sonnet",
+            telegramApiId: data.telegram_api_id || "",
+            telegramApiHash: data.telegram_api_hash || "",
+            telegramPhone: data.telegram_phone || "",
           });
         })
         .catch(() => {});
@@ -42,6 +49,15 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
       const body: Record<string, string> = { default_model: settings.defaultModel };
       if (settings.openrouterKey.trim()) {
         body.openrouter_key = settings.openrouterKey.trim();
+      }
+      if (settings.telegramApiId.trim()) {
+        body.telegram_api_id = settings.telegramApiId.trim();
+      }
+      if (settings.telegramApiHash.trim()) {
+        body.telegram_api_hash = settings.telegramApiHash.trim();
+      }
+      if (settings.telegramPhone.trim()) {
+        body.telegram_phone = settings.telegramPhone.trim();
       }
       await fetch("/api/settings", {
         method: "POST",
@@ -157,6 +173,47 @@ export function SettingsDialog({ open, onClose, activeChatId, onModelSaved }: Pr
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Send size={14} className="text-blue-400" />
+                Telegram API (для парсинга ботов)
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Получи на{" "}
+                <a href="https://my.telegram.org" target="blank" rel="noreferrer" className="text-accent underline hover:text-accent/80">
+                  my.telegram.org
+                </a>{" "}
+                → API development tools
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  value={settings.telegramApiId}
+                  onChange={e => setSettings(s => ({ ...s, telegramApiId: e.target.value }))}
+                  placeholder="API ID (число)"
+                  className="bg-input border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
+                />
+                <input
+                  type={showTgHash ? "text" : "password"}
+                  value={settings.telegramApiHash}
+                  onChange={e => setSettings(s => ({ ...s, telegramApiHash: e.target.value }))}
+                  placeholder="API Hash"
+                  className="bg-input border border-border rounded-xl px-3 py-2.5 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
+                />
+              </div>
+              <input
+                type="tel"
+                value={settings.telegramPhone}
+                onChange={e => setSettings(s => ({ ...s, telegramPhone: e.target.value }))}
+                placeholder="Телефон для авторизации (например: +79001234567)"
+                className="w-full bg-input border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 font-mono"
+              />
+              <p className="text-[10px] text-muted-foreground/50">Номер нужен один раз — дальше сессия сохраняется</p>
+              <button type="button" onClick={() => setShowTgHash(v => !v)} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+                {showTgHash ? "Скрыть" : "Показать"} API Hash
+              </button>
             </div>
 
             <div className="pt-2">
