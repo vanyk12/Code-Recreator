@@ -436,10 +436,26 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClo
   );
 }
 
+/* ─────────────── Strip raw XML tool tags from displayed content ─────────────── */
+function stripToolTags(content: string): string {
+  // All agent tool tags use snake_case names (contain underscore), e.g.:
+  //   <read_file path="..." />, <create_file path="...">...</create_file>,
+  //   <api_request method="GET" url="..." />, <run_command command="..." />
+  // Standard HTML/markdown tags never have underscores in their names.
+  // Self-closing: <tool_name attr="val" />
+  let cleaned = content.replace(/<\w+_\w+[^>]*\/>\s*/g, "");
+  // Paired: <tool_name attr="val">...</tool_name>
+  cleaned = cleaned.replace(/<\w+_\w+[^>]*>[\s\S]*?<\/\w+_\w+>\s*/g, "");
+  // Clean up excessive blank lines left behind
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  return cleaned.trim();
+}
+
 /* ─────────────── Markdown renderer ─────────────── */
 function MarkdownText({ content, chatId }: { content: string; chatId?: number }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [lightboxAlt, setLightboxAlt] = useState<string>("");
+  const displayContent = stripToolTags(content);
 
   return (
     <>
@@ -549,7 +565,7 @@ function MarkdownText({ content, chatId }: { content: string; chatId?: number })
           },
         }}
       >
-        {content}
+        {displayContent}
       </ReactMarkdown>
     </>
   );
